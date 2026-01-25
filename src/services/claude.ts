@@ -76,27 +76,12 @@ interface GenerateOptions {
 // THINKING TRIGGER DETECTION
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Match "Think" at start of email OR at start of any line (for replies with quoted text)
-const THINKING_TRIGGER_START = /^think\b/i
-const THINKING_TRIGGER_LINE = /^think\b/im  // multiline - matches start of any line
-
+// Simple: "THINK" in all caps anywhere in the email
 export function detectThinkingTrigger(content: string): { triggered: boolean; cleanedContent: string } {
-  const trimmed = content.trim()
-
-  // Check if "Think" is at the very start
-  if (THINKING_TRIGGER_START.test(trimmed)) {
-    const cleanedContent = trimmed.replace(THINKING_TRIGGER_START, '').trim()
-    console.log(`[THINKING] Trigger detected at start of email`)
-    return { triggered: true, cleanedContent }
-  }
-
-  // Check if "Think" is at the start of any line (for replies)
-  // Only trigger if "Think" appears in the first 500 chars (the new message part)
-  const firstPart = trimmed.slice(0, 500)
-  if (THINKING_TRIGGER_LINE.test(firstPart)) {
-    // Remove the "Think" from wherever it appears at a line start
-    const cleanedContent = trimmed.replace(THINKING_TRIGGER_LINE, '').trim()
-    console.log(`[THINKING] Trigger detected at start of a line`)
+  if (content.includes('THINK')) {
+    // Remove the THINK keyword
+    const cleanedContent = content.replace(/THINK/g, '').trim()
+    console.log(`[THINKING] THINK trigger detected`)
     return { triggered: true, cleanedContent }
   }
 
