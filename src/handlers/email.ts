@@ -39,14 +39,19 @@ interface ConversationMessage {
 export async function handleEmailWebhook(req: Request, res: Response) {
   const startTime = Date.now()
 
+  console.log('[BYTE EMAIL] ════════════════════════════════════════')
+  console.log('[BYTE EMAIL] Webhook received')
+
   try {
     // ─────────────────────────────────────────────────────────────────────────
     // VERIFY WEBHOOK SIGNATURE
     // ─────────────────────────────────────────────────────────────────────────
 
     const webhookSecret = process.env.RESEND_WEBHOOK_SECRET
+    console.log('[BYTE EMAIL] Webhook secret configured:', webhookSecret ? 'YES' : 'NO')
+
     if (!webhookSecret) {
-      console.error('[BYTE EMAIL] Missing RESEND_WEBHOOK_SECRET')
+      console.error('[BYTE EMAIL] ❌ Missing RESEND_WEBHOOK_SECRET')
       return res.status(500).json({ error: 'Server configuration error' })
     }
 
@@ -54,8 +59,12 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     const svixTimestamp = req.headers['svix-timestamp'] as string
     const svixSignature = req.headers['svix-signature'] as string
 
+    console.log('[BYTE EMAIL] Headers - svix-id:', svixId ? 'present' : 'missing')
+    console.log('[BYTE EMAIL] Headers - svix-timestamp:', svixTimestamp ? 'present' : 'missing')
+    console.log('[BYTE EMAIL] Headers - svix-signature:', svixSignature ? 'present' : 'missing')
+
     if (!svixId || !svixTimestamp || !svixSignature) {
-      console.error('[BYTE EMAIL] Missing webhook headers')
+      console.error('[BYTE EMAIL] ❌ Missing webhook headers')
       return res.status(401).json({ error: 'Missing webhook headers' })
     }
 
@@ -64,13 +73,19 @@ export async function handleEmailWebhook(req: Request, res: Response) {
 
     try {
       const payload = req.body.toString()
+      console.log('[BYTE EMAIL] Payload length:', payload.length)
+      console.log('[BYTE EMAIL] Payload preview:', payload.substring(0, 200))
+
       event = wh.verify(payload, {
         'svix-id': svixId,
         'svix-timestamp': svixTimestamp,
         'svix-signature': svixSignature,
       }) as EmailReceivedEvent
+
+      console.log('[BYTE EMAIL] ✓ Webhook verified successfully')
+      console.log('[BYTE EMAIL] Event type:', event.type)
     } catch (err) {
-      console.error('[BYTE EMAIL] Webhook verification failed:', err)
+      console.error('[BYTE EMAIL] ❌ Webhook verification failed:', err)
       return res.status(401).json({ error: 'Invalid webhook signature' })
     }
 
