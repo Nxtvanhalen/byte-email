@@ -4,8 +4,9 @@ import { handleEmailWebhook } from './handlers/email'
 const app = express()
 const PORT = process.env.PORT || 3000
 
-// Raw body needed for webhook signature verification
-app.use('/api/email/webhook', express.raw({ type: 'application/json' }))
+// Raw body needed for webhook signature verification - accept any content type
+app.use('/api/email/webhook', express.raw({ type: '*/*' }))
+app.use('/api/email/test-webhook', express.raw({ type: '*/*' }))
 app.use(express.json())
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -41,6 +42,25 @@ app.get('/debug', (req, res) => {
 
 // Email webhook endpoint
 app.post('/api/email/webhook', handleEmailWebhook)
+
+// Test webhook endpoint - logs what's received without verification
+app.post('/api/email/test-webhook', (req, res) => {
+  const payload = req.body?.toString() || 'empty'
+  console.log('[TEST WEBHOOK] ════════════════════════════════════════')
+  console.log('[TEST WEBHOOK] Content-Type:', req.headers['content-type'])
+  console.log('[TEST WEBHOOK] Svix-ID:', req.headers['svix-id'])
+  console.log('[TEST WEBHOOK] Payload length:', payload.length)
+  console.log('[TEST WEBHOOK] Payload:', payload.substring(0, 500))
+  console.log('[TEST WEBHOOK] ════════════════════════════════════════')
+
+  res.json({
+    received: true,
+    contentType: req.headers['content-type'],
+    hasSignature: !!req.headers['svix-signature'],
+    payloadLength: payload.length,
+    payloadPreview: payload.substring(0, 100)
+  })
+})
 
 // ═══════════════════════════════════════════════════════════════════════════
 // START SERVER
