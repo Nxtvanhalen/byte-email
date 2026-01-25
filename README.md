@@ -70,6 +70,29 @@ You send email → byte@chrisleebergstrom.com
 - ✅ Image attachment processing (Vision API)
 - ✅ PDF text extraction
 - ✅ Excel/CSV parsing
+- ✅ Extended thinking mode ("Think" trigger)
+
+---
+
+## Extended Thinking Mode
+
+Start your email with **"Think"** to activate deep reasoning:
+
+```
+To: byte@chrisleebergstrom.com
+Subject: Debug help
+
+Think - why isn't this function returning the right value?
+
+[your code here]
+```
+
+| Mode | Trigger | Behavior |
+|------|---------|----------|
+| **Normal** | (default) | Fast response, ~1-3 sec |
+| **Thinking** | Start with "Think" | Deep reasoning, ~5-15 sec |
+
+When thinking mode is used, Byte acknowledges: *"I took my time on this one, as you asked."*
 
 ---
 
