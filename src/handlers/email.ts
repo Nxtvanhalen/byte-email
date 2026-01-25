@@ -1,7 +1,7 @@
 import { Request, Response } from 'express'
 import { Webhook } from 'svix'
 import { redis } from '../services/redis'
-import { generateByteResponse } from '../services/claude'
+import { generateByteResponse, detectThinkingTrigger } from '../services/claude'
 import { sendByteReply } from '../services/resend'
 import { formatByteEmailHtml } from '../lib/email-template'
 import { processAttachments, formatAttachmentsForPrompt, getImageAttachments } from '../services/attachments'
@@ -152,6 +152,19 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     console.log(`[BYTE EMAIL] Content length: ${emailContent.length} chars`)
 
     // ─────────────────────────────────────────────────────────────────────────
+    // DETECT THINKING TRIGGER
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const { triggered: useThinking, cleanedContent } = detectThinkingTrigger(emailContent)
+
+    if (useThinking) {
+      console.log(`[BYTE EMAIL] 🧠 THINKING MODE ACTIVATED`)
+    }
+
+    // Use cleaned content (with "Think" removed if triggered)
+    const processedEmailContent = cleanedContent
+
+    // ─────────────────────────────────────────────────────────────────────────
     // HANDLE ATTACHMENTS (images, PDFs, Excel)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -187,13 +200,13 @@ export async function handleEmailWebhook(req: Request, res: Response) {
 
     let history: ConversationMessage[] = await redis.get(conversationKey) || []
 
-    // Add incoming message
+    // Add incoming message (use cleaned content without "Think" trigger)
     history.push({
       role: 'user',
-      content: emailContent,
+      content: processedEmailContent,
       channel: 'email',
       timestamp: Date.now(),
-      metadata: { from, subject, emailId: email_id }
+      metadata: { from, subject, emailId: email_id, thinkingRequested: useThinking }
     })
 
     console.log(`[BYTE EMAIL] Thread: ${threadId} (${history.length} messages)`)
@@ -202,14 +215,15 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     // GENERATE BYTE'S RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
 
-    console.log(`[BYTE EMAIL] Generating response...`)
+    console.log(`[BYTE EMAIL] Generating response...${useThinking ? ' (with extended thinking)' : ''}`)
 
     const byteResponse = await generateByteResponse({
       messages: history,
       from,
       subject,
       attachmentContext: attachmentContext || undefined,
-      images: processedImages.length > 0 ? processedImages : undefined
+      images: processedImages.length > 0 ? processedImages : undefined,
+      useThinking
     })
 
     console.log(`[BYTE EMAIL] Response length: ${byteResponse.length} chars`)

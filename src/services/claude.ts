@@ -69,6 +69,25 @@ interface GenerateOptions {
   subject: string
   attachmentContext?: string  // Text from PDFs/Excel
   images?: ProcessedAttachment[]  // Image attachments
+  useThinking?: boolean  // Enable extended thinking mode
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THINKING TRIGGER DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+const THINKING_TRIGGER = /^think\b/i
+
+export function detectThinkingTrigger(content: string): { triggered: boolean; cleanedContent: string } {
+  const trimmed = content.trim()
+
+  if (THINKING_TRIGGER.test(trimmed)) {
+    // Remove the "Think" trigger word from the start
+    const cleanedContent = trimmed.replace(THINKING_TRIGGER, '').trim()
+    return { triggered: true, cleanedContent }
+  }
+
+  return { triggered: false, cleanedContent: content }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -76,16 +95,21 @@ interface GenerateOptions {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function generateByteResponse(options: GenerateOptions): Promise<string> {
-  const { messages, from, subject, attachmentContext, images } = options
+  const { messages, from, subject, attachmentContext, images, useThinking } = options
 
   // Build system prompt
-  const systemPrompt = `${BYTE_EMAIL_PERSONA}
+  let systemPrompt = `${BYTE_EMAIL_PERSONA}
 
 CURRENT EMAIL CONTEXT:
 - From: ${from}
 - Subject: ${subject}
 - Conversation depth: ${messages.length} message(s)
 ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
+
+  // If thinking mode, add instruction
+  if (useThinking) {
+    systemPrompt += `\n\nIMPORTANT: The user has requested deep thinking on this. Take your time to reason through the problem carefully. At the END of your response (before your sign-off), include this acknowledgment: "I took my time on this one, as you asked."`
+  }
 
   // Build messages with potential image content
   const claudeMessages: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = []
@@ -132,17 +156,38 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
   }
 
   try {
-    console.log(`[CLAUDE] Calling API with ${images?.length || 0} images`)
+    console.log(`[CLAUDE] Calling API with ${images?.length || 0} images, thinking: ${useThinking ? 'ON' : 'OFF'}`)
 
-    const response = await anthropic.messages.create({
+    // Build API params
+    const apiParams: Anthropic.MessageCreateParams = {
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
+      max_tokens: useThinking ? 16000 : 4096,
       system: systemPrompt,
       messages: claudeMessages
-    })
+    }
 
-    if (response.content[0].type === 'text') {
-      return response.content[0].text
+    // Add extended thinking if triggered
+    if (useThinking) {
+      (apiParams as any).thinking = {
+        type: 'enabled',
+        budget_tokens: 10000
+      }
+      console.log(`[CLAUDE] Extended thinking enabled (10k budget)`)
+    }
+
+    const response = await anthropic.messages.create(apiParams)
+
+    // Extract text response (thinking blocks are separate, we just want the text output)
+    let textResponse = ''
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        textResponse = block.text
+        break
+      }
+    }
+
+    if (textResponse) {
+      return textResponse
     }
 
     return "I encountered an issue processing your email. Please try again.\n\n— Byte"
