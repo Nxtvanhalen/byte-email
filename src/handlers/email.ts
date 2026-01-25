@@ -285,14 +285,16 @@ async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?
 
 async function fetchEmailContent(emailId: string): Promise<string | null> {
   try {
-    const response = await fetch(`https://api.resend.com/emails/${emailId}`, {
+    // Use /emails/receiving/ endpoint for inbound emails (not /emails/)
+    const response = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
       headers: {
         'Authorization': `Bearer ${process.env.RESEND_API_KEY}`
       }
     })
 
     if (!response.ok) {
-      console.error(`[BYTE EMAIL] Resend API error: ${response.status}`)
+      const errorText = await response.text()
+      console.error(`[BYTE EMAIL] Resend API error: ${response.status}`, errorText)
       return null
     }
 
