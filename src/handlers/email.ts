@@ -4,6 +4,7 @@ import { redis } from '../services/redis'
 import { generateByteResponse } from '../services/claude'
 import { sendByteReply } from '../services/resend'
 import { formatByteEmailHtml } from '../lib/email-template'
+import { processAttachments, formatAttachmentsForPrompt, getImageAttachments } from '../services/attachments'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -151,14 +152,25 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     console.log(`[BYTE EMAIL] Content length: ${emailContent.length} chars`)
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HANDLE ATTACHMENTS (graceful notice for now)
+    // HANDLE ATTACHMENTS (images, PDFs, Excel)
     // ─────────────────────────────────────────────────────────────────────────
 
-    let attachmentNote = ''
+    let attachmentContext = ''
+    let processedImages: Awaited<ReturnType<typeof processAttachments>> = []
+
     if (attachments && attachments.length > 0) {
       const fileNames = attachments.map(a => a.filename).join(', ')
-      attachmentNote = `\n\n[This email has ${attachments.length} attachment(s): ${fileNames}. I can't process attachments yet, but I'm happy to help with the text content of your email.]`
-      console.log(`[BYTE EMAIL] Attachments: ${fileNames}`)
+      console.log(`[BYTE EMAIL] Processing attachments: ${fileNames}`)
+
+      const processed = await processAttachments(email_id, attachments)
+
+      // Get text content from PDFs/Excel
+      attachmentContext = formatAttachmentsForPrompt(processed)
+
+      // Get images for vision API
+      processedImages = getImageAttachments(processed)
+
+      console.log(`[BYTE EMAIL] Processed: ${processed.length} attachments (${processedImages.length} images)`)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -196,7 +208,8 @@ export async function handleEmailWebhook(req: Request, res: Response) {
       messages: history,
       from,
       subject,
-      attachmentNote
+      attachmentContext: attachmentContext || undefined,
+      images: processedImages.length > 0 ? processedImages : undefined
     })
 
     console.log(`[BYTE EMAIL] Response length: ${byteResponse.length} chars`)
