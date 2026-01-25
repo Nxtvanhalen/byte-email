@@ -67,23 +67,24 @@ You send email → byte@chrisleebergstrom.com
 - ✅ Reply emails sending
 - ✅ Conversation threading in Redis
 - ✅ Rate limiting active
+- ✅ Image attachment processing (Vision API)
+- ✅ PDF text extraction
+- ✅ Excel/CSV parsing
 
 ---
 
-## Next Steps
-
-### Attachment Processing (Planned)
+## Attachment Processing
 
 | Type | Library | Status |
 |------|---------|--------|
-| **Images (PNG, JPG)** | Claude Vision API | 🔜 Planned |
-| **PDF** | `pdf-parse` | 🔜 Planned |
-| **Excel** | `xlsx` | 🔜 Planned |
+| **Images (PNG, JPG, GIF, WebP)** | Claude Vision API | ✅ Working |
+| **PDF** | `pdf-parse` v2 | ✅ Working |
+| **Excel/CSV** | `xlsx` | ✅ Working |
 
-Currently attachments are detected and acknowledged but not processed. Next update will add:
-- Image analysis via Claude's native vision capability
-- PDF text extraction
-- Excel/spreadsheet data extraction
+Byte can now:
+- **See images** - Screenshots, photos, diagrams analyzed via Claude Vision
+- **Read PDFs** - Text extracted and included in context
+- **Parse spreadsheets** - Excel and CSV data converted to readable format
 
 ---
 
