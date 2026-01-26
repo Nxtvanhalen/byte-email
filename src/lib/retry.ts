@@ -12,14 +12,14 @@ interface RetryOptions {
 const DEFAULT_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> = {
   maxAttempts: 3,
   baseDelayMs: 1000,
-  maxDelayMs: 10000
+  maxDelayMs: 10000,
 }
 
 /**
  * Sleep for a given number of milliseconds
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
@@ -34,10 +34,7 @@ function calculateDelay(attempt: number, baseDelay: number, maxDelay: number): n
 /**
  * Execute a function with retry logic and exponential backoff
  */
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  options: RetryOptions = {}
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const { maxAttempts, baseDelayMs, maxDelayMs } = { ...DEFAULT_OPTIONS, ...options }
   const { onRetry } = options
 
@@ -60,7 +57,9 @@ export async function withRetry<T>(
       }
 
       const delay = calculateDelay(attempt, baseDelayMs, maxDelayMs)
-      console.log(`[RETRY] Attempt ${attempt}/${maxAttempts} failed, retrying in ${Math.round(delay)}ms...`)
+      console.log(
+        `[RETRY] Attempt ${attempt}/${maxAttempts} failed, retrying in ${Math.round(delay)}ms...`,
+      )
 
       if (onRetry) {
         onRetry(attempt, lastError)
@@ -86,12 +85,21 @@ function isRetryableError(error: unknown): boolean {
     }
 
     // Server errors - retry
-    if (message.includes('500') || message.includes('502') || message.includes('503') || message.includes('504')) {
+    if (
+      message.includes('500') ||
+      message.includes('502') ||
+      message.includes('503') ||
+      message.includes('504')
+    ) {
       return true
     }
 
     // Network errors - retry
-    if (message.includes('network') || message.includes('timeout') || message.includes('econnreset')) {
+    if (
+      message.includes('network') ||
+      message.includes('timeout') ||
+      message.includes('econnreset')
+    ) {
       return true
     }
 

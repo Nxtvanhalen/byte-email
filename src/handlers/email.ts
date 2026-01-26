@@ -4,8 +4,17 @@ import { redis } from '../services/redis'
 import { generateByteResponse, detectThinkingTrigger } from '../services/claude'
 import { sendByteReply, sendErrorEmail, sendThinkingAck } from '../services/resend'
 import { formatByteEmailHtml } from '../lib/email-template'
-import { formatErrorEmailHtml, formatErrorEmailText, formatThinkingAckHtml, formatThinkingAckText } from '../lib/error-templates'
-import { processAttachments, formatAttachmentsForPrompt, getImageAttachments } from '../services/attachments'
+import {
+  formatErrorEmailHtml,
+  formatErrorEmailText,
+  formatThinkingAckHtml,
+  formatThinkingAckText,
+} from '../lib/error-templates'
+import {
+  processAttachments,
+  formatAttachmentsForPrompt,
+  getImageAttachments,
+} from '../services/attachments'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -146,7 +155,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         to: from,
         subject: `Re: ${cleanSubject}`,
         text: formatErrorEmailText({ type: 'rate_limit' }),
-        html: formatErrorEmailHtml({ type: 'rate_limit' })
+        html: formatErrorEmailHtml({ type: 'rate_limit' }),
       })
 
       return res.json({ received: true, processed: false, reason: 'rate_limited' })
@@ -165,8 +174,15 @@ export async function handleEmailWebhook(req: Request, res: Response) {
       await sendErrorEmail({
         to: from,
         subject: `Re: ${cleanSubject}`,
-        text: formatErrorEmailText({ type: 'api_error', details: 'Could not retrieve email content' }),
-        html: formatErrorEmailHtml({ type: 'api_error', details: 'Could not retrieve email content', retrying: false })
+        text: formatErrorEmailText({
+          type: 'api_error',
+          details: 'Could not retrieve email content',
+        }),
+        html: formatErrorEmailHtml({
+          type: 'api_error',
+          details: 'Could not retrieve email content',
+          retrying: false,
+        }),
       })
 
       return res.status(500).json({ error: 'Failed to fetch email content' })
@@ -188,7 +204,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         to: from,
         subject: cleanSubject,
         text: formatThinkingAckText(cleanSubject),
-        html: formatThinkingAckHtml(cleanSubject)
+        html: formatThinkingAckHtml(cleanSubject),
       })
     }
 
@@ -204,7 +220,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     let attachmentWarning = ''
 
     if (attachments && attachments.length > 0) {
-      const fileNames = attachments.map(a => a.filename).join(', ')
+      const fileNames = attachments.map((a) => a.filename).join(', ')
       console.log(`[BYTE EMAIL] Processing attachments: ${fileNames}`)
 
       try {
@@ -217,14 +233,16 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         processedImages = getImageAttachments(processed)
 
         // Check for failures
-        const failed = processed.filter(p => p.error)
+        const failed = processed.filter((p) => p.error)
         if (failed.length > 0) {
-          const failedNames = failed.map(f => f.filename).join(', ')
+          const failedNames = failed.map((f) => f.filename).join(', ')
           attachmentWarning = `\n\n[Note: I couldn't process some attachments: ${failedNames}. The rest of your message is fine.]`
           console.log(`[BYTE EMAIL] ⚠️ Some attachments failed: ${failedNames}`)
         }
 
-        console.log(`[BYTE EMAIL] Processed: ${processed.length} attachments (${processedImages.length} images)`)
+        console.log(
+          `[BYTE EMAIL] Processed: ${processed.length} attachments (${processedImages.length} images)`,
+        )
       } catch (attachmentError) {
         console.error('[BYTE EMAIL] ⚠️ Attachment processing failed entirely:', attachmentError)
         attachmentWarning = `\n\n[Note: I couldn't process your attachments, but I'll respond to your message.]`
@@ -235,14 +253,16 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     // CONVERSATION THREADING (with graceful degradation)
     // ─────────────────────────────────────────────────────────────────────────
 
-    const threadId = `email:${Buffer.from(cleanSubject + from).toString('base64').slice(0, 24)}`
+    const threadId = `email:${Buffer.from(cleanSubject + from)
+      .toString('base64')
+      .slice(0, 24)}`
     const conversationKey = `byte:conversation:${threadId}`
 
     let history: ConversationMessage[] = []
     let redisAvailable = true
 
     try {
-      history = await redis.get(conversationKey) || []
+      history = (await redis.get(conversationKey)) || []
     } catch (redisError) {
       console.error('[BYTE EMAIL] ⚠️ Redis unavailable, continuing without history:', redisError)
       redisAvailable = false
@@ -254,16 +274,20 @@ export async function handleEmailWebhook(req: Request, res: Response) {
       content: processedEmailContent,
       channel: 'email',
       timestamp: Date.now(),
-      metadata: { from, subject, emailId: email_id, thinkingRequested: useThinking }
+      metadata: { from, subject, emailId: email_id, thinkingRequested: useThinking },
     })
 
-    console.log(`[BYTE EMAIL] Thread: ${threadId} (${history.length} messages)${!redisAvailable ? ' [NO HISTORY - Redis down]' : ''}`)
+    console.log(
+      `[BYTE EMAIL] Thread: ${threadId} (${history.length} messages)${!redisAvailable ? ' [NO HISTORY - Redis down]' : ''}`,
+    )
 
     // ─────────────────────────────────────────────────────────────────────────
     // GENERATE BYTE'S RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
 
-    console.log(`[BYTE EMAIL] Generating response...${useThinking ? ' (with extended thinking)' : ''}`)
+    console.log(
+      `[BYTE EMAIL] Generating response...${useThinking ? ' (with extended thinking)' : ''}`,
+    )
 
     let byteResponse: string
 
@@ -274,14 +298,13 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         subject,
         attachmentContext: attachmentContext || undefined,
         images: processedImages.length > 0 ? processedImages : undefined,
-        useThinking
+        useThinking,
       })
 
       // Add attachment warning if needed
       if (attachmentWarning) {
         byteResponse = byteResponse.replace(/— Byte.*$/s, attachmentWarning + '\n\n— Byte')
       }
-
     } catch (claudeError) {
       console.error('[BYTE EMAIL] ❌ Claude API failed:', claudeError)
 
@@ -290,7 +313,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         to: from,
         subject: `Re: ${cleanSubject}`,
         text: formatErrorEmailText({ type: 'api_error', retrying: false }),
-        html: formatErrorEmailHtml({ type: 'api_error', retrying: false })
+        html: formatErrorEmailHtml({ type: 'api_error', retrying: false }),
       })
 
       return res.status(500).json({ error: 'AI response generation failed' })
@@ -308,7 +331,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
           role: 'assistant',
           content: byteResponse,
           channel: 'email',
-          timestamp: Date.now()
+          timestamp: Date.now(),
         })
 
         // Keep last 50 messages, expire after 30 days
@@ -332,13 +355,15 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     const sendResult = await sendByteReply({
       to: from,
       subject: replySubject,
-      text: byteResponse + `\n\n---\nOn ${new Date().toLocaleDateString()}, you wrote:\n> ${processedEmailContent.replace(/\n/g, '\n> ')}`,
+      text:
+        byteResponse +
+        `\n\n---\nOn ${new Date().toLocaleDateString()}, you wrote:\n> ${processedEmailContent.replace(/\n/g, '\n> ')}`,
       html: formatByteEmailHtml(byteResponse, {
         originalMessage: processedEmailContent,
         originalFrom: from,
         originalSubject: subject,
-        originalDate: new Date()
-      })
+        originalDate: new Date(),
+      }),
     })
 
     if (!sendResult.success) {
@@ -349,7 +374,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         to: from,
         subject: `Re: ${cleanSubject}`,
         text: formatErrorEmailText({ type: 'send_failed', retrying: true }),
-        html: formatErrorEmailHtml({ type: 'send_failed', retrying: true })
+        html: formatErrorEmailHtml({ type: 'send_failed', retrying: true }),
       })
 
       return res.status(500).json({ error: 'Failed to send reply' })
@@ -363,9 +388,8 @@ export async function handleEmailWebhook(req: Request, res: Response) {
       received: true,
       processed: true,
       replied: true,
-      duration_ms: duration
+      duration_ms: duration,
     })
-
   } catch (error) {
     console.error('[BYTE EMAIL] ❌ Unexpected error:', error)
 
@@ -375,8 +399,14 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         await sendErrorEmail({
           to: senderEmail,
           subject: `Re: ${cleanSubject}`,
-          text: formatErrorEmailText({ type: 'unknown', details: error instanceof Error ? error.message : undefined }),
-          html: formatErrorEmailHtml({ type: 'unknown', details: error instanceof Error ? error.message : undefined })
+          text: formatErrorEmailText({
+            type: 'unknown',
+            details: error instanceof Error ? error.message : undefined,
+          }),
+          html: formatErrorEmailHtml({
+            type: 'unknown',
+            details: error instanceof Error ? error.message : undefined,
+          }),
         })
       } catch (notifyError) {
         console.error('[BYTE EMAIL] Could not send error notification:', notifyError)
@@ -436,8 +466,8 @@ async function fetchEmailContent(emailId: string): Promise<string | null> {
     // Use /emails/receiving/ endpoint for inbound emails (not /emails/)
     const response = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
       headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`
-      }
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      },
     })
 
     if (!response.ok) {
@@ -446,7 +476,7 @@ async function fetchEmailContent(emailId: string): Promise<string | null> {
       return null
     }
 
-    const email = await response.json() as { text?: string; html?: string }
+    const email = (await response.json()) as { text?: string; html?: string }
 
     // Prefer plain text, fall back to stripped HTML
     if (email.text) {

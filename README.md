@@ -65,15 +65,15 @@ You send email → byte@chrisleebergstrom.com
 
 ### Color Palette
 
-| Element | Color | Usage |
-|---------|-------|-------|
-| Background | `#000000` | Email body, outer wrapper |
-| Content area | `#0a0a0a` | Main content background |
-| Header | `#1e1a2e` | Dark purple header bar |
-| Primary text | `#E8E8E8` | Body text, readable on dark |
-| Secondary text | `#888888` | Muted text, timestamps |
-| Accent | `#9B7ED1` | Links, code, quote borders |
-| Bold text | `#EBEBEB` | Slightly brighter for emphasis |
+| Element        | Color     | Usage                          |
+| -------------- | --------- | ------------------------------ |
+| Background     | `#000000` | Email body, outer wrapper      |
+| Content area   | `#0a0a0a` | Main content background        |
+| Header         | `#1e1a2e` | Dark purple header bar         |
+| Primary text   | `#E8E8E8` | Body text, readable on dark    |
+| Secondary text | `#888888` | Muted text, timestamps         |
+| Accent         | `#9B7ED1` | Links, code, quote borders     |
+| Bold text      | `#EBEBEB` | Slightly brighter for emphasis |
 
 ### Typography
 
@@ -84,6 +84,7 @@ You send email → byte@chrisleebergstrom.com
 ### Email Client Compatibility
 
 The template uses:
+
 - `bgcolor` HTML attributes (required for Apple Mail)
 - `color-scheme: dark` meta tags
 - Inline styles (no external CSS)
@@ -104,27 +105,29 @@ THINK - why isn't this function returning the right value?
 [your code here]
 ```
 
-| Mode | Trigger | Behavior |
-|------|---------|----------|
-| **Normal** | (default) | Fast response, ~1-3 sec |
+| Mode         | Trigger         | Behavior                  |
+| ------------ | --------------- | ------------------------- |
+| **Normal**   | (default)       | Fast response, ~1-3 sec   |
 | **Thinking** | Include "THINK" | Deep reasoning, ~5-15 sec |
 
 When thinking mode is triggered:
+
 1. Byte immediately sends a "thinking" acknowledgment email
 2. Extended reasoning runs with 10k token budget
-3. Final response includes: *"I took my time on this one, as you asked."*
+3. Final response includes: _"I took my time on this one, as you asked."_
 
 ---
 
 ## Attachment Processing
 
-| Type | Library | Status |
-|------|---------|--------|
+| Type                             | Library           | Status     |
+| -------------------------------- | ----------------- | ---------- |
 | **Images (PNG, JPG, GIF, WebP)** | Claude Vision API | ✅ Working |
-| **PDF** | `pdf-parse` v2 | ✅ Working |
-| **Excel/CSV** | `xlsx` | ✅ Working |
+| **PDF**                          | `pdf-parse` v2    | ✅ Working |
+| **Excel/CSV**                    | `xlsx`            | ✅ Working |
 
 ### Graceful Degradation
+
 - If attachment processing fails, Byte still responds to the text
 - User is notified which attachments couldn't be processed
 - Partial success is better than total failure
@@ -135,37 +138,39 @@ When thinking mode is triggered:
 
 ### Error Types & User Messages
 
-| Error Type | Title | User Sees |
-|------------|-------|-----------|
-| `api_error` | "Hit a Technical Snag" | AI brain having a moment, retry soon |
-| `rate_limit` | "Whoa, Slow Down There" | Sending too fast, wait a bit |
-| `attachment_failed` | "Couldn't Read Your Attachment" | File issue, try resending |
-| `thinking_timeout` | "Deep Thought Taking Too Long" | THINK mode taking longer than expected |
-| `redis_down` | "Memory Temporarily Offline" | No conversation history available |
-| `send_failed` | "Reply Got Stuck" | Email sending failed, auto-retrying |
-| `unknown` | "Something Went Wrong" | Generic fallback |
+| Error Type          | Title                           | User Sees                              |
+| ------------------- | ------------------------------- | -------------------------------------- |
+| `api_error`         | "Hit a Technical Snag"          | AI brain having a moment, retry soon   |
+| `rate_limit`        | "Whoa, Slow Down There"         | Sending too fast, wait a bit           |
+| `attachment_failed` | "Couldn't Read Your Attachment" | File issue, try resending              |
+| `thinking_timeout`  | "Deep Thought Taking Too Long"  | THINK mode taking longer than expected |
+| `redis_down`        | "Memory Temporarily Offline"    | No conversation history available      |
+| `send_failed`       | "Reply Got Stuck"               | Email sending failed, auto-retrying    |
+| `unknown`           | "Something Went Wrong"          | Generic fallback                       |
 
 ### Retry Logic
 
 **Claude API:**
+
 - 3 attempts maximum
 - Exponential backoff: 1s → 2s → 4s
 - Retries on: rate limits, 5xx errors, timeouts, overloaded
 
 **Resend Email:**
+
 - 2 attempts maximum
 - Exponential backoff: 1s → 2s
 - Retries on: network errors, server errors
 
 ### Graceful Degradation Matrix
 
-| Failure Point | Fallback Behavior |
-|---------------|-------------------|
-| Redis unavailable | Process without history, still respond |
-| Attachment fails | Respond to text, note failure in reply |
-| Claude API fails | Send styled error email after retries |
-| Send reply fails | Send error notification email |
-| Rate limit check fails | Allow request (fail open) |
+| Failure Point          | Fallback Behavior                      |
+| ---------------------- | -------------------------------------- |
+| Redis unavailable      | Process without history, still respond |
+| Attachment fails       | Respond to text, note failure in reply |
+| Claude API fails       | Send styled error email after retries  |
+| Send reply fails       | Send error notification email          |
+| Rate limit check fails | Allow request (fail open)              |
 
 ---
 
@@ -247,7 +252,9 @@ src/
 ## Key Files Explained
 
 ### `src/handlers/email.ts`
+
 Main webhook handler. Orchestrates the entire email processing flow:
+
 - Webhook verification
 - Rate limiting with graceful degradation
 - THINK mode detection and acknowledgment
@@ -257,7 +264,9 @@ Main webhook handler. Orchestrates the entire email processing flow:
 - Error notification on failures
 
 ### `src/lib/email-template.ts`
+
 Dark mode HTML email template:
+
 - Pure black background
 - Purple accents
 - Markdown-to-HTML conversion (headers, lists, code blocks)
@@ -265,26 +274,34 @@ Dark mode HTML email template:
 - Email client compatibility (bgcolor attributes)
 
 ### `src/lib/error-templates.ts`
+
 On-brand error emails:
+
 - `formatErrorEmailHtml()` - Styled error messages
 - `formatThinkingAckHtml()` - "Byte is thinking" acknowledgment
 - Maintains Byte's personality in error states
 
 ### `src/lib/retry.ts`
+
 Reusable retry utility:
+
 - Exponential backoff with jitter
 - Configurable attempts and delays
 - Smart error classification (retryable vs fatal)
 
 ### `src/services/claude.ts`
+
 Claude API integration:
+
 - Byte's email personality prompt
 - THINK mode with extended thinking
 - Image support via Vision API
 - 3 retries on API failures
 
 ### `src/services/resend.ts`
+
 Email sending:
+
 - `sendByteReply()` - Main reply with retries
 - `sendErrorEmail()` - Error notifications (no retry, fail silently)
 - `sendThinkingAck()` - THINK mode acknowledgment
@@ -324,6 +341,7 @@ Visit `http://localhost:3000/preview` to see the email template without sending.
 ### 5. Deploy to Render
 
 Push to GitHub, then in Render:
+
 - New → Web Service → Connect repo
 - Render will auto-detect `render.yaml`
 - Add environment variables
@@ -332,6 +350,7 @@ Push to GitHub, then in Render:
 ### 6. Configure Webhook
 
 In Resend dashboard:
+
 - Webhooks → Add Webhook
 - Endpoint: `https://byte-email.onrender.com/api/email/webhook`
 - Events: `email.received`
@@ -340,14 +359,14 @@ In Resend dashboard:
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Service info |
-| `/health` | GET | Health check |
-| `/debug` | GET | Environment variable check |
-| `/preview` | GET | Preview email template in browser |
-| `/api/email/webhook` | POST | Resend webhook handler |
-| `/api/email/test-webhook` | POST | Debug endpoint (logs payload) |
+| Endpoint                  | Method | Description                       |
+| ------------------------- | ------ | --------------------------------- |
+| `/`                       | GET    | Service info                      |
+| `/health`                 | GET    | Health check                      |
+| `/debug`                  | GET    | Environment variable check        |
+| `/preview`                | GET    | Preview email template in browser |
+| `/api/email/webhook`      | POST   | Resend webhook handler            |
+| `/api/email/test-webhook` | POST   | Debug endpoint (logs payload)     |
 
 ---
 
@@ -369,6 +388,7 @@ In Resend dashboard:
 ### Adjusting Retry Behavior
 
 Edit constants in respective service files:
+
 - `CLAUDE_RETRY_OPTIONS` in `claude.ts`
 - `RESEND_RETRY_OPTIONS` in `resend.ts`
 
@@ -379,21 +399,25 @@ Or use `createRetrier()` from `retry.ts` for custom retry wrappers.
 ## Troubleshooting
 
 ### Webhook not receiving emails
+
 - Check Resend dashboard for webhook delivery logs
 - Verify URL is `https://byte-email.onrender.com/api/email/webhook`
 - Check Render logs for incoming requests
 
 ### Dark mode not showing in Apple Mail
+
 - Ensure `bgcolor` attributes are present (not just CSS)
 - Check for `color-scheme: dark` meta tags
 - Some clients override styles in reply composition
 
 ### Claude API errors
+
 - Check Anthropic dashboard for API status
 - Verify `ANTHROPIC_API_KEY` is set
 - Check logs for specific error messages (rate limit, overloaded, etc.)
 
 ### Redis connection issues
+
 - Verify `UPSTASH_REDIS_URL` and `UPSTASH_REDIS_TOKEN`
 - System will continue without history (graceful degradation)
 - Check Upstash dashboard for connection limits

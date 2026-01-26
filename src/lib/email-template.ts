@@ -10,12 +10,12 @@ interface EmailTemplateOptions {
   originalDate?: Date
 }
 
-export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOptions, 'response'>): string {
+export function formatByteEmailHtml(
+  text: string,
+  options?: Omit<EmailTemplateOptions, 'response'>,
+): string {
   // Escape HTML entities first
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
   // Convert markdown-style formatting
   html = html
@@ -24,15 +24,27 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
       return `<pre style="background:#111118;color:#E8E8E8;padding:16px;border-radius:6px;overflow-x:auto;font-family:'Courier New',Courier,monospace;font-size:13px;margin:16px 0;border:1px solid #1e1a2e;"><code>${code.trim()}</code></pre>`
     })
     // Inline code (`code`)
-    .replace(/`([^`]+)`/g, '<code style="background:#1e1a2e;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:14px;color:#9B7ED1;">$1</code>')
+    .replace(
+      /`([^`]+)`/g,
+      '<code style="background:#1e1a2e;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:14px;color:#9B7ED1;">$1</code>',
+    )
     // Bold (**text**)
     .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#EBEBEB;">$1</strong>')
     // Italic (*text*)
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     // Headers (## Header) - tighter bottom margin for better grouping with content
-    .replace(/^### (.+)$/gm, '<h3 style="margin:20px 0 6px;font-size:16px;color:#E8E8E8;font-weight:600;">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 style="margin:24px 0 8px;font-size:18px;color:#E8E8E8;font-weight:600;">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 style="margin:28px 0 10px;font-size:20px;color:#E8E8E8;font-weight:600;">$1</h1>')
+    .replace(
+      /^### (.+)$/gm,
+      '<h3 style="margin:20px 0 6px;font-size:16px;color:#E8E8E8;font-weight:600;">$1</h3>',
+    )
+    .replace(
+      /^## (.+)$/gm,
+      '<h2 style="margin:24px 0 8px;font-size:18px;color:#E8E8E8;font-weight:600;">$1</h2>',
+    )
+    .replace(
+      /^# (.+)$/gm,
+      '<h1 style="margin:28px 0 10px;font-size:20px;color:#E8E8E8;font-weight:600;">$1</h1>',
+    )
     // Bullet lists
     .replace(/^- (.+)$/gm, '<li style="margin:4px 0;">$1</li>')
     .replace(/^• (.+)$/gm, '<li style="margin:4px 0;">$1</li>')
@@ -57,7 +69,7 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
           month: 'short',
           day: 'numeric',
           hour: 'numeric',
-          minute: '2-digit'
+          minute: '2-digit',
         })
       : 'earlier'
 

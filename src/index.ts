@@ -1,5 +1,6 @@
 import express from 'express'
 import { handleEmailWebhook } from './handlers/email'
+import { formatByteEmailHtml } from './lib/email-template'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -18,7 +19,7 @@ app.get('/', (req, res) => {
   res.json({
     service: 'Byte Email',
     status: 'operational',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   })
 })
 
@@ -36,13 +37,13 @@ app.get('/debug', (req, res) => {
       UPSTASH_REDIS_URL: process.env.UPSTASH_REDIS_URL ? '✓ set' : '✗ missing',
       UPSTASH_REDIS_TOKEN: process.env.UPSTASH_REDIS_TOKEN ? '✓ set' : '✗ missing',
     },
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   })
 })
 
 // Preview endpoint - see email template in browser
 app.get('/preview', (req, res) => {
-  const { formatByteEmailHtml } = require('./lib/email-template')
+  // const { formatByteEmailHtml } = require('./lib/email-template')
 
   const sampleResponse = `Hey Chris,
 
@@ -79,7 +80,7 @@ Chris`
     originalMessage: sampleOriginal,
     originalFrom: 'chris@example.com',
     originalSubject: 'Question about architecture',
-    originalDate: new Date()
+    originalDate: new Date(),
   })
 
   res.send(html)
@@ -103,7 +104,7 @@ app.post('/api/email/test-webhook', (req, res) => {
     contentType: req.headers['content-type'],
     hasSignature: !!req.headers['svix-signature'],
     payloadLength: payload.length,
-    payloadPreview: payload.substring(0, 100)
+    payloadPreview: payload.substring(0, 100),
   })
 })
 

@@ -11,7 +11,7 @@ const CLAUDE_RETRY_OPTIONS = {
   maxDelayMs: 8000,
   onRetry: (attempt: number, error: Error) => {
     console.log(`[CLAUDE] Retry ${attempt}: ${error.message}`)
-  }
+  },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -78,9 +78,9 @@ interface GenerateOptions {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
   from: string
   subject: string
-  attachmentContext?: string  // Text from PDFs/Excel
-  images?: ProcessedAttachment[]  // Image attachments
-  useThinking?: boolean  // Enable extended thinking mode
+  attachmentContext?: string // Text from PDFs/Excel
+  images?: ProcessedAttachment[] // Image attachments
+  useThinking?: boolean // Enable extended thinking mode
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -88,7 +88,10 @@ interface GenerateOptions {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Simple: "THINK" in all caps anywhere in the email
-export function detectThinkingTrigger(content: string): { triggered: boolean; cleanedContent: string } {
+export function detectThinkingTrigger(content: string): {
+  triggered: boolean
+  cleanedContent: string
+} {
   if (content.includes('THINK')) {
     // Remove the THINK keyword
     const cleanedContent = content.replace(/THINK/g, '').trim()
@@ -138,8 +141,8 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
             source: {
               type: 'base64',
               media_type: img.mediaType as ImageMediaType,
-              data: img.base64
-            }
+              data: img.base64,
+            },
           })
           console.log(`[CLAUDE] Adding image to prompt: ${img.filename}`)
         }
@@ -148,38 +151,40 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
       // Add text content
       contentBlocks.push({
         type: 'text',
-        text: msg.content
+        text: msg.content,
       })
 
       claudeMessages.push({
         role: 'user',
-        content: contentBlocks
+        content: contentBlocks,
       })
     } else {
       // Regular text message
       claudeMessages.push({
         role: msg.role,
-        content: msg.content
+        content: msg.content,
       })
     }
   }
 
   try {
-    console.log(`[CLAUDE] Calling API with ${images?.length || 0} images, thinking: ${useThinking ? 'ON' : 'OFF'}`)
+    console.log(
+      `[CLAUDE] Calling API with ${images?.length || 0} images, thinking: ${useThinking ? 'ON' : 'OFF'}`,
+    )
 
     // Build API params
     const apiParams: Anthropic.MessageCreateParams = {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: useThinking ? 16000 : 4096,
       system: systemPrompt,
-      messages: claudeMessages
+      messages: claudeMessages,
     }
 
     // Add extended thinking if triggered
     if (useThinking) {
-      (apiParams as any).thinking = {
+      ;(apiParams as any).thinking = {
         type: 'enabled',
-        budget_tokens: 10000
+        budget_tokens: 10000,
       }
       console.log(`[CLAUDE] Extended thinking enabled (10k budget)`)
     }
@@ -187,7 +192,7 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
     // Call API with retry logic
     const response = await withRetry(
       () => anthropic.messages.create(apiParams),
-      CLAUDE_RETRY_OPTIONS
+      CLAUDE_RETRY_OPTIONS,
     )
 
     // Extract text response (thinking blocks are separate, we just want the text output)
@@ -205,8 +210,7 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
     }
 
     console.warn('[CLAUDE] No text response in API result')
-    return "I encountered an issue processing your email. Please try again.\n\n— Byte"
-
+    return 'I encountered an issue processing your email. Please try again.\n\n— Byte'
   } catch (error) {
     console.error('[CLAUDE] Error after all retries:', error)
 

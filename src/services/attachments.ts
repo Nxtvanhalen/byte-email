@@ -14,9 +14,9 @@ export interface AttachmentInfo {
 export interface ProcessedAttachment {
   filename: string
   type: 'image' | 'pdf' | 'excel' | 'unsupported'
-  content?: string        // For PDF/Excel: extracted text
-  base64?: string         // For images: base64 data
-  mediaType?: string      // For images: media type
+  content?: string // For PDF/Excel: extracted text
+  base64?: string // For images: base64 data
+  mediaType?: string // For images: media type
   error?: string
 }
 
@@ -26,7 +26,7 @@ const PDF_TYPES = ['application/pdf']
 const EXCEL_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
   'application/vnd.ms-excel', // xls
-  'text/csv'
+  'text/csv',
 ]
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -40,9 +40,9 @@ async function fetchAttachment(emailId: string, attachmentId: string): Promise<B
       `https://api.resend.com/emails/receiving/${emailId}/attachments/${attachmentId}`,
       {
         headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`
-        }
-      }
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        },
+      },
     )
 
     if (!metaResponse.ok) {
@@ -50,7 +50,7 @@ async function fetchAttachment(emailId: string, attachmentId: string): Promise<B
       return null
     }
 
-    const metadata = await metaResponse.json() as { download_url?: string; content?: string }
+    const metadata = (await metaResponse.json()) as { download_url?: string; content?: string }
 
     // If there's a download URL, fetch the actual content
     if (metadata.download_url) {
@@ -70,7 +70,6 @@ async function fetchAttachment(emailId: string, attachmentId: string): Promise<B
 
     console.error('[ATTACHMENTS] No download_url or content in metadata')
     return null
-
   } catch (error) {
     console.error('[ATTACHMENTS] Error fetching attachment:', error)
     return null
@@ -83,7 +82,7 @@ async function fetchAttachment(emailId: string, attachmentId: string): Promise<B
 
 export async function processAttachments(
   emailId: string,
-  attachments: AttachmentInfo[]
+  attachments: AttachmentInfo[],
 ): Promise<ProcessedAttachment[]> {
   const results: ProcessedAttachment[] = []
 
@@ -94,11 +93,18 @@ export async function processAttachments(
 
     // Determine type
     let type: ProcessedAttachment['type'] = 'unsupported'
-    if (IMAGE_TYPES.some(t => contentType.includes(t.split('/')[1]))) {
+    if (IMAGE_TYPES.some((t) => contentType.includes(t.split('/')[1]))) {
       type = 'image'
-    } else if (PDF_TYPES.some(t => contentType.includes('pdf'))) {
+    } else if (PDF_TYPES.some((t) => contentType.includes('pdf'))) {
       type = 'pdf'
-    } else if (EXCEL_TYPES.some(t => contentType.includes(t.split('/')[1]) || contentType.includes('csv') || contentType.includes('spreadsheet'))) {
+    } else if (
+      EXCEL_TYPES.some(
+        (t) =>
+          contentType.includes(t.split('/')[1]) ||
+          contentType.includes('csv') ||
+          contentType.includes('spreadsheet'),
+      )
+    ) {
       type = 'excel'
     }
 
@@ -106,7 +112,7 @@ export async function processAttachments(
       results.push({
         filename: attachment.filename,
         type: 'unsupported',
-        error: `Unsupported file type: ${attachment.content_type}`
+        error: `Unsupported file type: ${attachment.content_type}`,
       })
       continue
     }
@@ -117,7 +123,7 @@ export async function processAttachments(
       results.push({
         filename: attachment.filename,
         type,
-        error: 'Failed to download attachment'
+        error: 'Failed to download attachment',
       })
       continue
     }
@@ -130,26 +136,33 @@ export async function processAttachments(
             filename: attachment.filename,
             type: 'image',
             base64: buffer.toString('base64'),
-            mediaType: contentType.includes('png') ? 'image/png' :
-                       contentType.includes('gif') ? 'image/gif' :
-                       contentType.includes('webp') ? 'image/webp' : 'image/jpeg'
+            mediaType: contentType.includes('png')
+              ? 'image/png'
+              : contentType.includes('gif')
+                ? 'image/gif'
+                : contentType.includes('webp')
+                  ? 'image/webp'
+                  : 'image/jpeg',
           })
           console.log(`[ATTACHMENTS] ✓ Image processed: ${attachment.filename}`)
           break
 
-        case 'pdf':
+        case 'pdf': {
           const parser = new PDFParse({ data: buffer })
           const pdfResult = await parser.getText()
           const pdfText = pdfResult.text || ''
           results.push({
             filename: attachment.filename,
             type: 'pdf',
-            content: pdfText.trim() || 'No text content extracted from PDF'
+            content: pdfText.trim() || 'No text content extracted from PDF',
           })
-          console.log(`[ATTACHMENTS] ✓ PDF processed: ${attachment.filename} (${pdfText.length} chars)`)
+          console.log(
+            `[ATTACHMENTS] ✓ PDF processed: ${attachment.filename} (${pdfText.length} chars)`,
+          )
           break
+        }
 
-        case 'excel':
+        case 'excel': {
           const workbook = XLSX.read(buffer, { type: 'buffer' })
           let excelContent = ''
 
@@ -162,17 +175,18 @@ export async function processAttachments(
           results.push({
             filename: attachment.filename,
             type: 'excel',
-            content: excelContent.trim() || 'No data extracted from spreadsheet'
+            content: excelContent.trim() || 'No data extracted from spreadsheet',
           })
           console.log(`[ATTACHMENTS] ✓ Excel processed: ${attachment.filename}`)
           break
+        }
       }
     } catch (error) {
       console.error(`[ATTACHMENTS] Error processing ${attachment.filename}:`, error)
       results.push({
         filename: attachment.filename,
         type,
-        error: `Failed to process: ${error instanceof Error ? error.message : 'Unknown error'}`
+        error: `Failed to process: ${error instanceof Error ? error.message : 'Unknown error'}`,
       })
     }
   }
@@ -193,7 +207,9 @@ export function formatAttachmentsForPrompt(attachments: ProcessedAttachment[]): 
     if (att.error) {
       parts.push(`[Attachment: ${att.filename} - ${att.error}]`)
     } else if (att.type === 'pdf' || att.type === 'excel') {
-      parts.push(`\n--- Attachment: ${att.filename} ---\n${att.content}\n--- End of ${att.filename} ---\n`)
+      parts.push(
+        `\n--- Attachment: ${att.filename} ---\n${att.content}\n--- End of ${att.filename} ---\n`,
+      )
     }
     // Images are handled separately via Claude's vision API
   }
@@ -206,5 +222,5 @@ export function formatAttachmentsForPrompt(attachments: ProcessedAttachment[]): 
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getImageAttachments(attachments: ProcessedAttachment[]): ProcessedAttachment[] {
-  return attachments.filter(a => a.type === 'image' && a.base64 && !a.error)
+  return attachments.filter((a) => a.type === 'image' && a.base64 && !a.error)
 }

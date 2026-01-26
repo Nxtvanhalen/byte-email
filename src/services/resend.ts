@@ -13,7 +13,7 @@ const RESEND_RETRY_OPTIONS = {
   maxDelayMs: 5000,
   onRetry: (attempt: number, error: Error) => {
     console.log(`[RESEND] Retry ${attempt}: ${error.message}`)
-  }
+  },
 }
 
 interface SendEmailOptions {
@@ -23,33 +23,31 @@ interface SendEmailOptions {
   html: string
 }
 
-export async function sendByteReply(options: SendEmailOptions): Promise<{ success: boolean; error?: string }> {
+export async function sendByteReply(
+  options: SendEmailOptions,
+): Promise<{ success: boolean; error?: string }> {
   const { to, subject, text, html } = options
 
   try {
-    const result = await withRetry(
-      async () => {
-        const response = await resend.emails.send({
-          from: `${BYTE_NAME} <${BYTE_EMAIL}>`,
-          to: to,
-          subject: subject,
-          text: text,
-          html: html,
-          replyTo: BYTE_EMAIL
-        })
+    const result = await withRetry(async () => {
+      const response = await resend.emails.send({
+        from: `${BYTE_NAME} <${BYTE_EMAIL}>`,
+        to: to,
+        subject: subject,
+        text: text,
+        html: html,
+        replyTo: BYTE_EMAIL,
+      })
 
-        if (response.error) {
-          throw new Error(response.error.message)
-        }
+      if (response.error) {
+        throw new Error(response.error.message)
+      }
 
-        return response
-      },
-      RESEND_RETRY_OPTIONS
-    )
+      return response
+    }, RESEND_RETRY_OPTIONS)
 
     console.log(`[RESEND] ✓ Email sent to ${to} (id: ${result.data?.id})`)
     return { success: true }
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     console.error('[RESEND] Failed to send email after retries:', errorMessage)
@@ -73,7 +71,7 @@ export async function sendErrorEmail(options: {
       subject: options.subject,
       text: options.text,
       html: options.html,
-      replyTo: BYTE_EMAIL
+      replyTo: BYTE_EMAIL,
     })
     console.log(`[RESEND] Error notification sent to ${options.to}`)
   } catch (error) {
@@ -98,7 +96,7 @@ export async function sendThinkingAck(options: {
       subject: `[Thinking] ${options.subject}`,
       text: options.text,
       html: options.html,
-      replyTo: BYTE_EMAIL
+      replyTo: BYTE_EMAIL,
     })
     console.log(`[RESEND] Thinking acknowledgment sent to ${options.to}`)
   } catch (error) {

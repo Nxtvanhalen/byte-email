@@ -21,40 +21,47 @@ interface ErrorEmailOptions {
 
 const ERROR_MESSAGES: Record<ErrorType, { title: string; message: string; suggestion: string }> = {
   api_error: {
-    title: "Hit a Technical Snag",
-    message: "My brain (the AI part) is having a moment. Could be a temporary hiccup on my end.",
-    suggestion: "Try sending your email again in a minute or two. These things usually sort themselves out."
+    title: 'Hit a Technical Snag',
+    message: 'My brain (the AI part) is having a moment. Could be a temporary hiccup on my end.',
+    suggestion:
+      'Try sending your email again in a minute or two. These things usually sort themselves out.',
   },
   rate_limit: {
-    title: "Whoa, Slow Down There",
+    title: 'Whoa, Slow Down There',
     message: "You're sending emails faster than I can think! I have limits to prevent overload.",
-    suggestion: "Give me a few minutes to catch up, then try again. Quality responses take time."
+    suggestion: 'Give me a few minutes to catch up, then try again. Quality responses take time.',
   },
   attachment_failed: {
     title: "Couldn't Read Your Attachment",
-    message: "I tried to open your attachment but something went wrong. It might be corrupted, too large, or in a format I can't handle.",
-    suggestion: "Try resending the file, or paste the content directly in your email if possible."
+    message:
+      "I tried to open your attachment but something went wrong. It might be corrupted, too large, or in a format I can't handle.",
+    suggestion: 'Try resending the file, or paste the content directly in your email if possible.',
   },
   thinking_timeout: {
-    title: "Deep Thought Taking Too Long",
-    message: "You asked me to really think about this (THINK mode), but I'm taking longer than expected. Still working on it.",
-    suggestion: "I'll send a follow-up when I'm done. If you don't hear back in 5 minutes, try again."
+    title: 'Deep Thought Taking Too Long',
+    message:
+      "You asked me to really think about this (THINK mode), but I'm taking longer than expected. Still working on it.",
+    suggestion:
+      "I'll send a follow-up when I'm done. If you don't hear back in 5 minutes, try again.",
   },
   redis_down: {
-    title: "Memory Temporarily Offline",
-    message: "I can't access my conversation memory right now, so I might not remember our previous exchanges.",
-    suggestion: "I can still help! Just include any relevant context in your message."
+    title: 'Memory Temporarily Offline',
+    message:
+      "I can't access my conversation memory right now, so I might not remember our previous exchanges.",
+    suggestion: 'I can still help! Just include any relevant context in your message.',
   },
   send_failed: {
-    title: "Reply Got Stuck",
+    title: 'Reply Got Stuck',
     message: "I wrote you a response but couldn't send it. Email gremlins, probably.",
-    suggestion: "I'm retrying automatically. If you don't get a response soon, send your question again."
+    suggestion:
+      "I'm retrying automatically. If you don't get a response soon, send your question again.",
   },
   unknown: {
-    title: "Something Went Wrong",
-    message: "I encountered an unexpected issue. Not sure exactly what happened.",
-    suggestion: "Try again in a few minutes. If it keeps happening, the humans might need to take a look."
-  }
+    title: 'Something Went Wrong',
+    message: 'I encountered an unexpected issue. Not sure exactly what happened.',
+    suggestion:
+      'Try again in a few minutes. If it keeps happening, the humans might need to take a look.',
+  },
 }
 
 export function formatErrorEmailHtml(options: ErrorEmailOptions): string {
