@@ -258,8 +258,13 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     await sendByteReply({
       to: from,
       subject: replySubject,
-      text: byteResponse,
-      html: formatByteEmailHtml(byteResponse)
+      text: byteResponse + `\n\n---\nOn ${new Date().toLocaleDateString()}, you wrote:\n> ${processedEmailContent.replace(/\n/g, '\n> ')}`,
+      html: formatByteEmailHtml(byteResponse, {
+        originalMessage: processedEmailContent,
+        originalFrom: from,
+        originalSubject: subject,
+        originalDate: new Date()
+      })
     })
 
     const duration = Date.now() - startTime

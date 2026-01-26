@@ -1,7 +1,16 @@
 /**
  * Formats Byte's response as a styled HTML email
  */
-export function formatByteEmailHtml(text: string): string {
+
+interface EmailTemplateOptions {
+  response: string
+  originalMessage?: string
+  originalFrom?: string
+  originalSubject?: string
+  originalDate?: Date
+}
+
+export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOptions, 'response'>): string {
   // Escape HTML entities first
   let html = text
     .replace(/&/g, '&amp;')
@@ -38,6 +47,44 @@ export function formatByteEmailHtml(text: string): string {
     return `<ul style="margin:12px 0;padding-left:24px;">${match}</ul>`
   })
 
+  // Build quoted original message section
+  let quotedSection = ''
+  if (options?.originalMessage) {
+    const date = options.originalDate
+      ? options.originalDate.toLocaleDateString('en-US', {
+          weekday: 'short',
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        })
+      : 'earlier'
+
+    const from = options.originalFrom || 'you'
+    const subject = options.originalSubject || ''
+
+    // Escape and format the original message
+    const quotedText = options.originalMessage
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')
+
+    quotedSection = `
+          <!-- Quoted Original Message -->
+          <tr>
+            <td style="padding:24px 32px;border-top:1px solid #eee;">
+              <p style="margin:0 0 12px;color:#666;font-size:13px;">
+                On ${date}, <strong>${from}</strong> wrote${subject ? ` (${subject})` : ''}:
+              </p>
+              <div style="border-left:3px solid #ddd;padding-left:16px;color:#666;font-size:14px;line-height:1.6;">
+                ${quotedText}
+              </div>
+            </td>
+          </tr>`
+  }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -64,13 +111,13 @@ export function formatByteEmailHtml(text: string): string {
             </td>
           </tr>
 
-          <!-- Content -->
+          <!-- Byte's Response -->
           <tr>
             <td style="padding:32px;color:#333333;font-size:15px;line-height:1.7;">
               <p style="margin:0 0 16px;">${html}</p>
             </td>
           </tr>
-
+${quotedSection}
           <!-- Footer -->
           <tr>
             <td style="padding:20px 32px;background:#f8f9fa;border-top:1px solid #eee;">
