@@ -1,7 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { ProcessedAttachment } from './attachments'
+import { withRetry } from '../lib/retry'
 
 const anthropic = new Anthropic()
+
+// Retry configuration for Claude API
+const CLAUDE_RETRY_OPTIONS = {
+  maxAttempts: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 8000,
+  onRetry: (attempt: number, error: Error) => {
+    console.log(`[CLAUDE] Retry ${attempt}: ${error.message}`)
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BYTE'S EMAIL PERSONALITY
@@ -173,7 +184,11 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
       console.log(`[CLAUDE] Extended thinking enabled (10k budget)`)
     }
 
-    const response = await anthropic.messages.create(apiParams)
+    // Call API with retry logic
+    const response = await withRetry(
+      () => anthropic.messages.create(apiParams),
+      CLAUDE_RETRY_OPTIONS
+    )
 
     // Extract text response (thinking blocks are separate, we just want the text output)
     let textResponse = ''
@@ -185,19 +200,17 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
     }
 
     if (textResponse) {
+      console.log(`[CLAUDE] Response generated successfully (${textResponse.length} chars)`)
       return textResponse
     }
 
+    console.warn('[CLAUDE] No text response in API result')
     return "I encountered an issue processing your email. Please try again.\n\n— Byte"
 
   } catch (error) {
-    console.error('[CLAUDE] Error generating response:', error)
+    console.error('[CLAUDE] Error after all retries:', error)
 
-    // Return a graceful error message
-    return `I ran into a technical hiccup while processing your email. The robots are looking into it.
-
-If this persists, try again in a few minutes.
-
-— Byte`
+    // Throw to let caller handle with error email
+    throw error
   }
 }
