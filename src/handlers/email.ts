@@ -251,9 +251,8 @@ export async function handleEmailWebhook(req: Request, res: Response) {
     // SEND REPLY
     // ─────────────────────────────────────────────────────────────────────────
 
-    const replySubject = subject.toLowerCase().startsWith('re:')
-      ? `Byte Email | ${subject}`
-      : `Byte Email | Re: ${subject}`
+    // Use cleanSubject (already stripped of Re:/Fwd:/Byte Email|) for consistent threading
+    const replySubject = `Re: ${cleanSubject}`
 
     await sendByteReply({
       to: from,
