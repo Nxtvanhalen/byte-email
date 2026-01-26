@@ -21,10 +21,10 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
   html = html
     // Code blocks (```code```)
     .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-      return `<pre style="background:#111118;color:#E8E8E8;padding:16px;border-radius:6px;overflow-x:auto;font-family:'Courier New',Courier,monospace;font-size:13px;margin:16px 0;border:1px solid #1a1a2e;"><code>${code.trim()}</code></pre>`
+      return `<pre style="background:#111118;color:#E8E8E8;padding:16px;border-radius:6px;overflow-x:auto;font-family:'Courier New',Courier,monospace;font-size:13px;margin:16px 0;border:1px solid #1e1a2e;"><code>${code.trim()}</code></pre>`
     })
     // Inline code (`code`)
-    .replace(/`([^`]+)`/g, '<code style="background:#1a1a2e;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:14px;color:#6B9BD1;">$1</code>')
+    .replace(/`([^`]+)`/g, '<code style="background:#1e1a2e;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:14px;color:#9B7ED1;">$1</code>')
     // Bold (**text**)
     .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#EBEBEB;">$1</strong>')
     // Italic (*text*)
@@ -74,11 +74,11 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
     quotedSection = `
           <!-- Quoted Original Message -->
           <tr>
-            <td bgcolor="#0a0a0a" style="background:#0a0a0a;background-color:#0a0a0a;padding:24px 32px;border-top:1px solid #1a1a2e;">
+            <td bgcolor="#0a0a0a" style="background:#0a0a0a;background-color:#0a0a0a;padding:24px 32px;border-top:1px solid #1e1a2e;">
               <p style="margin:0 0 12px;color:#888;font-size:13px;">
-                On ${date}, <strong style="color:#6B9BD1;">${from}</strong> wrote${subject ? ` (${subject})` : ''}:
+                On ${date}, <strong style="color:#9B7ED1;">${from}</strong> wrote${subject ? ` (${subject})` : ''}:
               </p>
-              <div style="border-left:3px solid #6B9BD1;padding-left:16px;color:#999;font-size:14px;line-height:1.6;">
+              <div style="border-left:3px solid #9B7ED1;padding-left:16px;color:#999;font-size:14px;line-height:1.6;">
                 ${quotedText}
               </div>
             </td>
@@ -109,7 +109,7 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
         <table role="presentation" width="700" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0a0a" style="max-width:700px;width:100%;background:#0a0a0a;background-color:#0a0a0a;">
           <!-- Header -->
           <tr>
-            <td bgcolor="#1a1a2e" style="background:#1a1a2e;background-color:#1a1a2e;padding:28px 32px;">
+            <td bgcolor="#1e1a2e" style="background:#1e1a2e;background-color:#1e1a2e;padding:16px 32px;border-radius:12px 12px 0 0;">
               <span style="font-size:24px;margin-right:12px;">⚡</span>
               <span style="color:#ffffff;font-size:20px;font-weight:600;letter-spacing:-0.5px;">Byte</span>
             </td>
@@ -124,7 +124,7 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
 ${quotedSection}
           <!-- Footer -->
           <tr>
-            <td bgcolor="#050505" style="background:#050505;background-color:#050505;padding:20px 32px;border-top:1px solid #1a1a2e;">
+            <td bgcolor="#050505" style="background:#050505;background-color:#050505;padding:20px 32px;border-top:1px solid #1e1a2e;">
               <p style="margin:0;color:#666;font-size:12px;line-height:1.5;">
                 Reply to this email to continue the conversation with Byte.
               </p>
