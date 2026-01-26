@@ -74,11 +74,11 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
     quotedSection = `
           <!-- Quoted Original Message -->
           <tr>
-            <td style="padding:24px 32px;border-top:1px solid #1a1a2e;">
-              <p style="margin:0 0 12px;color:#E8E8E8;font-size:13px;">
+            <td bgcolor="#0a0a0a" style="background:#0a0a0a;background-color:#0a0a0a;padding:24px 32px;border-top:1px solid #1a1a2e;">
+              <p style="margin:0 0 12px;color:#888;font-size:13px;">
                 On ${date}, <strong style="color:#6B9BD1;">${from}</strong> wrote${subject ? ` (${subject})` : ''}:
               </p>
-              <div style="border-left:3px solid #6B9BD1;padding-left:16px;color:#E8E8E8;font-size:14px;line-height:1.6;">
+              <div style="border-left:3px solid #6B9BD1;padding-left:16px;color:#999;font-size:14px;line-height:1.6;">
                 ${quotedText}
               </div>
             </td>
@@ -90,38 +90,42 @@ export function formatByteEmailHtml(text: string, options?: Omit<EmailTemplateOp
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
   <title>Byte Email</title>
+  <style>
+    :root { color-scheme: dark; }
+    @media (prefers-color-scheme: dark) {
+      body, .body { background-color: #000000 !important; }
+    }
+  </style>
 </head>
-<body style="margin:0;padding:0;background-color:#000000;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;font-size:15px;">
-  <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#000000;">
+<body bgcolor="#000000" style="margin:0;padding:0;background:#000000;background-color:#000000;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;font-size:15px;">
+  <!-- Wrapper table for full-width black background -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="width:100%;background:#000000;background-color:#000000;">
     <tr>
-      <td style="padding:0;">
-        <table role="presentation" style="max-width:600px;margin:0 auto;background:#0a0a0a;">
+      <td align="center" bgcolor="#000000" style="background:#000000;background-color:#000000;padding:20px 0;">
+        <!-- Content table -->
+        <table role="presentation" width="700" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0a0a" style="max-width:700px;width:100%;background:#0a0a0a;background-color:#0a0a0a;">
           <!-- Header -->
           <tr>
-            <td style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);padding:28px 32px;">
-              <table role="presentation" style="width:100%;">
-                <tr>
-                  <td>
-                    <span style="font-size:24px;margin-right:12px;filter:brightness(0) invert(1);">⚡</span>
-                    <span style="color:#ffffff;font-size:20px;font-weight:600;letter-spacing:-0.5px;">Byte</span>
-                  </td>
-                </tr>
-              </table>
+            <td bgcolor="#1a1a2e" style="background:#1a1a2e;background-color:#1a1a2e;padding:28px 32px;">
+              <span style="font-size:24px;margin-right:12px;">⚡</span>
+              <span style="color:#ffffff;font-size:20px;font-weight:600;letter-spacing:-0.5px;">Byte</span>
             </td>
           </tr>
 
           <!-- Byte's Response -->
           <tr>
-            <td style="padding:32px 32px 28px;color:#E8E8E8;font-size:15px;line-height:1.7;">
-              <p style="margin:0;">${html}</p>
+            <td bgcolor="#0a0a0a" style="background:#0a0a0a;background-color:#0a0a0a;padding:32px 32px 28px;color:#E8E8E8;font-size:15px;line-height:1.7;">
+              <p style="margin:0;color:#E8E8E8;">${html}</p>
             </td>
           </tr>
 ${quotedSection}
           <!-- Footer -->
           <tr>
-            <td style="padding:20px 32px;background:#050505;border-top:1px solid #1a1a2e;">
-              <p style="margin:0;color:#555;font-size:12px;line-height:1.5;">
+            <td bgcolor="#050505" style="background:#050505;background-color:#050505;padding:20px 32px;border-top:1px solid #1a1a2e;">
+              <p style="margin:0;color:#666;font-size:12px;line-height:1.5;">
                 Reply to this email to continue the conversation with Byte.
               </p>
             </td>
@@ -129,10 +133,10 @@ ${quotedSection}
         </table>
 
         <!-- Sub-footer -->
-        <table role="presentation" style="max-width:600px;margin:0 auto;">
+        <table role="presentation" width="700" cellpadding="0" cellspacing="0" border="0" style="max-width:700px;width:100%;">
           <tr>
-            <td style="text-align:center;padding:16px 8px;">
-              <p style="margin:0;color:#333;font-size:11px;">
+            <td align="center" style="padding:16px 8px;">
+              <p style="margin:0;color:#444;font-size:11px;">
                 Powered by Byte AI • chrisleebergstrom.com
               </p>
             </td>
