@@ -1,6 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { ProcessedAttachment } from './attachments'
 import { withRetry } from '../lib/retry'
+import { logger } from '../lib/logger'
+
+const log = logger.child({ service: 'claude' })
 
 const anthropic = new Anthropic()
 
@@ -10,7 +13,7 @@ const CLAUDE_RETRY_OPTIONS = {
   baseDelayMs: 1000,
   maxDelayMs: 8000,
   onRetry: (attempt: number, error: Error) => {
-    console.log(`[CLAUDE] Retry ${attempt}: ${error.message}`)
+    log.warn({ attempt, err: error.message }, 'Claude API retry')
   },
 }
 
@@ -48,7 +51,7 @@ Always end your emails with a brief, personality-driven sign-off.
 Examples:
 - "— Byte"
 - "— Byte (your friendly AI correspondent)"
-- "Until next time,\nByte"
+- "Until next time,\\nByte"
 
 Keep sign-offs short and natural. Don't use generic corporate closings like "Best regards" or "Sincerely".`
 
@@ -103,9 +106,8 @@ export function detectThinkingTrigger(content: string): {
   cleanedContent: string
 } {
   if (content.includes('THINK')) {
-    // Remove the THINK keyword
     const cleanedContent = content.replace(/THINK/g, '').trim()
-    console.log(`[THINKING] THINK trigger detected`)
+    log.info('THINK trigger detected')
     return { triggered: true, cleanedContent }
   }
 
@@ -158,7 +160,7 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
                 data: pdf.base64,
               },
             } as any)
-            console.log(`[CLAUDE] Adding PDF document block: ${pdf.filename}`)
+            log.info({ filename: pdf.filename }, 'Adding PDF document block')
           }
         }
       }
@@ -175,7 +177,7 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
                 data: img.base64,
               },
             } as any)
-            console.log(`[CLAUDE] Adding image to prompt: ${img.filename}`)
+            log.info({ filename: img.filename }, 'Adding image to prompt')
           }
         }
       }
@@ -200,8 +202,13 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
   }
 
   try {
-    console.log(
-      `[CLAUDE] Calling API with ${images?.length || 0} images, thinking: ${useThinking ? 'ON' : 'OFF'}`,
+    log.info(
+      {
+        imageCount: images?.length || 0,
+        pdfCount: pdfs?.length || 0,
+        thinking: useThinking ? 'on' : 'off',
+      },
+      'Calling Claude API',
     )
 
     // Build API params
@@ -218,7 +225,7 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
         type: 'enabled',
         budget_tokens: 10000,
       }
-      console.log(`[CLAUDE] Extended thinking enabled (10k budget)`)
+      log.info({ budgetTokens: 10000 }, 'Extended thinking enabled')
     }
 
     // Call API with retry logic
@@ -237,16 +244,14 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
     }
 
     if (textResponse) {
-      console.log(`[CLAUDE] Response generated successfully (${textResponse.length} chars)`)
+      log.info({ responseLength: textResponse.length }, 'Response generated')
       return textResponse
     }
 
-    console.warn('[CLAUDE] No text response in API result')
+    log.warn('No text response in API result')
     return 'I encountered an issue processing your email. Please try again.\n\n— Byte'
   } catch (error) {
-    console.error('[CLAUDE] Error after all retries:', error)
-
-    // Throw to let caller handle with error email
+    log.error({ err: error }, 'Claude API failed after all retries')
     throw error
   }
 }

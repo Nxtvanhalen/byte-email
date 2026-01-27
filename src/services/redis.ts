@@ -1,7 +1,8 @@
 import { Redis } from '@upstash/redis'
+import { logger } from '../lib/logger'
 
 if (!process.env.UPSTASH_REDIS_URL || !process.env.UPSTASH_REDIS_TOKEN) {
-  console.warn('[REDIS] Warning: Missing UPSTASH_REDIS_URL or UPSTASH_REDIS_TOKEN')
+  logger.warn('Missing UPSTASH_REDIS_URL or UPSTASH_REDIS_TOKEN')
 }
 
 export const redis = new Redis({
@@ -13,8 +14,8 @@ export const redis = new Redis({
 redis
   .ping()
   .then(() => {
-    console.log('[REDIS] ✓ Connected to Upstash Redis')
+    logger.info('Connected to Upstash Redis')
   })
   .catch((err) => {
-    console.error('[REDIS] ✗ Failed to connect:', err.message)
+    logger.error({ err }, 'Failed to connect to Redis')
   })

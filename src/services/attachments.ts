@@ -1,4 +1,7 @@
 import * as XLSX from 'xlsx'
+import { logger } from '../lib/logger'
+
+const log = logger.child({ service: 'attachments' })
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -45,7 +48,7 @@ async function fetchAttachment(emailId: string, attachmentId: string): Promise<B
     )
 
     if (!metaResponse.ok) {
-      console.error(`[ATTACHMENTS] Failed to get attachment metadata: ${metaResponse.status}`)
+      log.error({ status: metaResponse.status }, 'Failed to get attachment metadata')
       return null
     }
 
@@ -55,7 +58,7 @@ async function fetchAttachment(emailId: string, attachmentId: string): Promise<B
     if (metadata.download_url) {
       const contentResponse = await fetch(metadata.download_url)
       if (!contentResponse.ok) {
-        console.error(`[ATTACHMENTS] Failed to download attachment: ${contentResponse.status}`)
+        log.error({ status: contentResponse.status }, 'Failed to download attachment')
         return null
       }
       const arrayBuffer = await contentResponse.arrayBuffer()
@@ -67,10 +70,10 @@ async function fetchAttachment(emailId: string, attachmentId: string): Promise<B
       return Buffer.from(metadata.content, 'base64')
     }
 
-    console.error('[ATTACHMENTS] No download_url or content in metadata')
+    log.error('No download_url or content in metadata')
     return null
   } catch (error) {
-    console.error('[ATTACHMENTS] Error fetching attachment:', error)
+    log.error({ err: error }, 'Error fetching attachment')
     return null
   }
 }
@@ -86,7 +89,10 @@ export async function processAttachments(
   const results: ProcessedAttachment[] = []
 
   for (const attachment of attachments) {
-    console.log(`[ATTACHMENTS] Processing: ${attachment.filename} (${attachment.content_type})`)
+    log.info(
+      { filename: attachment.filename, contentType: attachment.content_type },
+      'Processing attachment',
+    )
 
     const contentType = attachment.content_type.toLowerCase()
 
@@ -143,7 +149,7 @@ export async function processAttachments(
                   ? 'image/webp'
                   : 'image/jpeg',
           })
-          console.log(`[ATTACHMENTS] ✓ Image processed: ${attachment.filename}`)
+          log.info({ filename: attachment.filename }, 'Image processed')
           break
 
         case 'pdf':
@@ -155,8 +161,9 @@ export async function processAttachments(
             base64: buffer.toString('base64'),
             mediaType: 'application/pdf',
           })
-          console.log(
-            `[ATTACHMENTS] ✓ PDF prepared for Claude vision: ${attachment.filename} (${buffer.length} bytes)`,
+          log.info(
+            { filename: attachment.filename, sizeBytes: buffer.length },
+            'PDF prepared for Claude vision',
           )
           break
 
@@ -175,12 +182,12 @@ export async function processAttachments(
             type: 'excel',
             content: excelContent.trim() || 'No data extracted from spreadsheet',
           })
-          console.log(`[ATTACHMENTS] ✓ Excel processed: ${attachment.filename}`)
+          log.info({ filename: attachment.filename }, 'Excel processed')
           break
         }
       }
     } catch (error) {
-      console.error(`[ATTACHMENTS] Error processing ${attachment.filename}:`, error)
+      log.error({ err: error, filename: attachment.filename }, 'Error processing attachment')
       results.push({
         filename: attachment.filename,
         type,

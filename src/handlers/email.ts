@@ -16,12 +16,12 @@ import {
   getImageAttachments,
   getPdfAttachments,
 } from '../services/attachments'
+import { createRequestLogger } from '../lib/logger'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-const BYTE_EMAIL = 'byte@chrisleebergstrom.com'
 const RATE_LIMIT_PER_HOUR = 15
 const RATE_LIMIT_PER_DAY = 50
 
@@ -41,7 +41,7 @@ interface ConversationMessage {
   content: string
   channel: 'email'
   timestamp: number
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -50,13 +50,12 @@ interface ConversationMessage {
 
 export async function handleEmailWebhook(c: Context) {
   const startTime = Date.now()
+  const log = createRequestLogger({ handler: 'webhook' })
 
-  console.log('[BYTE EMAIL] ════════════════════════════════════════')
-  console.log('[BYTE EMAIL] Webhook received')
+  log.info('Webhook received')
 
   // Store sender info for error handling
   let senderEmail: string | null = null
-  let emailSubject: string | null = null
   let cleanSubject: string | null = null
 
   try {
@@ -65,10 +64,9 @@ export async function handleEmailWebhook(c: Context) {
     // ─────────────────────────────────────────────────────────────────────────
 
     const webhookSecret = process.env.RESEND_WEBHOOK_SECRET
-    console.log('[BYTE EMAIL] Webhook secret configured:', webhookSecret ? 'YES' : 'NO')
 
     if (!webhookSecret) {
-      console.error('[BYTE EMAIL] ❌ Missing RESEND_WEBHOOK_SECRET')
+      log.error('Missing RESEND_WEBHOOK_SECRET')
       return c.json({ error: 'Server configuration error' }, 500)
     }
 
@@ -76,12 +74,17 @@ export async function handleEmailWebhook(c: Context) {
     const svixTimestamp = c.req.header('svix-timestamp')
     const svixSignature = c.req.header('svix-signature')
 
-    console.log('[BYTE EMAIL] Headers - svix-id:', svixId ? 'present' : 'missing')
-    console.log('[BYTE EMAIL] Headers - svix-timestamp:', svixTimestamp ? 'present' : 'missing')
-    console.log('[BYTE EMAIL] Headers - svix-signature:', svixSignature ? 'present' : 'missing')
+    log.debug(
+      {
+        svixId: svixId ? 'present' : 'missing',
+        svixTimestamp: svixTimestamp ? 'present' : 'missing',
+        svixSignature: svixSignature ? 'present' : 'missing',
+      },
+      'Webhook headers',
+    )
 
     if (!svixId || !svixTimestamp || !svixSignature) {
-      console.error('[BYTE EMAIL] ❌ Missing webhook headers')
+      log.error('Missing webhook headers')
       return c.json({ error: 'Missing webhook headers' }, 401)
     }
 
@@ -90,8 +93,7 @@ export async function handleEmailWebhook(c: Context) {
 
     try {
       const payload = await c.req.text()
-      console.log('[BYTE EMAIL] Payload length:', payload.length)
-      console.log('[BYTE EMAIL] Payload preview:', payload.substring(0, 200))
+      log.debug({ payloadLength: payload.length }, 'Verifying webhook payload')
 
       event = wh.verify(payload, {
         'svix-id': svixId,
@@ -99,10 +101,9 @@ export async function handleEmailWebhook(c: Context) {
         'svix-signature': svixSignature,
       }) as EmailReceivedEvent
 
-      console.log('[BYTE EMAIL] ✓ Webhook verified successfully')
-      console.log('[BYTE EMAIL] Event type:', event.type)
+      log.info({ eventType: event.type }, 'Webhook verified')
     } catch (err) {
-      console.error('[BYTE EMAIL] ❌ Webhook verification failed:', err)
+      log.error({ err }, 'Webhook verification failed')
       return c.json({ error: 'Invalid webhook signature' }, 401)
     }
 
@@ -111,7 +112,7 @@ export async function handleEmailWebhook(c: Context) {
     // ─────────────────────────────────────────────────────────────────────────
 
     if (event.type !== 'email.received') {
-      console.log(`[BYTE EMAIL] Ignoring event type: ${event.type}`)
+      log.info({ eventType: event.type }, 'Ignoring non-email event')
       return c.json({ received: true, processed: false })
     }
 
@@ -120,38 +121,39 @@ export async function handleEmailWebhook(c: Context) {
 
     // Store for error handling
     senderEmail = from
-    emailSubject = subject
     cleanSubject = subject
       .replace(/^(re:|fwd:|fw:)\s*/gi, '')
       .replace(/^byte email\s*\|\s*/gi, '')
       .replace(/^\[thinking\]\s*/gi, '')
       .trim()
 
+    // Create a request-scoped logger with email context
+    const emailLog = createRequestLogger({
+      handler: 'email',
+      emailId: email_id,
+      from,
+      subject: cleanSubject,
+    })
+
     // ─────────────────────────────────────────────────────────────────────────
     // ROUTE: Is this email for Byte?
     // ─────────────────────────────────────────────────────────────────────────
 
     if (!toAddress.includes('byte@')) {
-      console.log(`[BYTE EMAIL] Email not for Byte (to: ${toAddress}), skipping`)
+      emailLog.info({ to: toAddress }, 'Email not for Byte, skipping')
       return c.json({ received: true, processed: false, reason: 'not_for_byte' })
     }
 
-    console.log(`\n${'═'.repeat(60)}`)
-    console.log(`[BYTE EMAIL] 📧 NEW EMAIL`)
-    console.log(`${'═'.repeat(60)}`)
-    console.log(`[BYTE EMAIL] From:    ${from}`)
-    console.log(`[BYTE EMAIL] Subject: ${subject}`)
-    console.log(`[BYTE EMAIL] ID:      ${email_id}`)
+    emailLog.info('Processing new email')
 
     // ─────────────────────────────────────────────────────────────────────────
     // RATE LIMITING
     // ─────────────────────────────────────────────────────────────────────────
 
-    const rateLimitResult = await checkRateLimitSafe(from)
+    const rateLimitResult = await checkRateLimitSafe(from, emailLog)
     if (!rateLimitResult.allowed) {
-      console.log(`[BYTE EMAIL] ⚠️ Rate limited: ${from} (${rateLimitResult.reason})`)
+      emailLog.warn({ reason: rateLimitResult.reason }, 'Rate limited')
 
-      // Send styled rate limit email
       await sendErrorEmail({
         to: from,
         subject: `Re: ${cleanSubject}`,
@@ -166,11 +168,11 @@ export async function handleEmailWebhook(c: Context) {
     // FETCH FULL EMAIL CONTENT
     // ─────────────────────────────────────────────────────────────────────────
 
-    console.log(`[BYTE EMAIL] Fetching email content...`)
+    emailLog.info('Fetching email content')
 
-    const emailContent = await fetchEmailContent(email_id)
+    const emailContent = await fetchEmailContent(email_id, emailLog)
     if (!emailContent) {
-      console.error(`[BYTE EMAIL] Failed to fetch email content`)
+      emailLog.error('Failed to fetch email content')
 
       await sendErrorEmail({
         to: from,
@@ -189,7 +191,7 @@ export async function handleEmailWebhook(c: Context) {
       return c.json({ error: 'Failed to fetch email content' }, 500)
     }
 
-    console.log(`[BYTE EMAIL] Content length: ${emailContent.length} chars`)
+    emailLog.info({ contentLength: emailContent.length }, 'Email content fetched')
 
     // ─────────────────────────────────────────────────────────────────────────
     // DETECT THINKING TRIGGER
@@ -198,9 +200,8 @@ export async function handleEmailWebhook(c: Context) {
     const { triggered: useThinking, cleanedContent } = detectThinkingTrigger(emailContent)
 
     if (useThinking) {
-      console.log(`[BYTE EMAIL] 🧠 THINKING MODE ACTIVATED`)
+      emailLog.info('Thinking mode activated')
 
-      // Send immediate acknowledgment for thinking mode
       await sendThinkingAck({
         to: from,
         subject: cleanSubject,
@@ -209,7 +210,6 @@ export async function handleEmailWebhook(c: Context) {
       })
     }
 
-    // Use cleaned content (with "Think" removed if triggered)
     const processedEmailContent = cleanedContent
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -223,33 +223,32 @@ export async function handleEmailWebhook(c: Context) {
 
     if (attachments && attachments.length > 0) {
       const fileNames = attachments.map((a) => a.filename).join(', ')
-      console.log(`[BYTE EMAIL] Processing attachments: ${fileNames}`)
+      emailLog.info({ files: fileNames, count: attachments.length }, 'Processing attachments')
 
       try {
         const processed = await processAttachments(email_id, attachments)
 
-        // Get text content from Excel (PDFs now go through Claude vision)
         attachmentContext = formatAttachmentsForPrompt(processed)
-
-        // Get images for vision API
         processedImages = getImageAttachments(processed)
-
-        // Get PDFs for Claude native document understanding
         processedPdfs = getPdfAttachments(processed)
 
-        // Check for failures
         const failed = processed.filter((p) => p.error)
         if (failed.length > 0) {
           const failedNames = failed.map((f) => f.filename).join(', ')
           attachmentWarning = `\n\n[Note: I couldn't process some attachments: ${failedNames}. The rest of your message is fine.]`
-          console.log(`[BYTE EMAIL] ⚠️ Some attachments failed: ${failedNames}`)
+          emailLog.warn({ failedFiles: failedNames }, 'Some attachments failed')
         }
 
-        console.log(
-          `[BYTE EMAIL] Processed: ${processed.length} attachments (${processedImages.length} images)`,
+        emailLog.info(
+          {
+            total: processed.length,
+            images: processedImages.length,
+            pdfs: processedPdfs.length,
+          },
+          'Attachments processed',
         )
       } catch (attachmentError) {
-        console.error('[BYTE EMAIL] ⚠️ Attachment processing failed entirely:', attachmentError)
+        emailLog.error({ err: attachmentError }, 'Attachment processing failed entirely')
         attachmentWarning = `\n\n[Note: I couldn't process your attachments, but I'll respond to your message.]`
       }
     }
@@ -269,11 +268,10 @@ export async function handleEmailWebhook(c: Context) {
     try {
       history = (await redis.get(conversationKey)) || []
     } catch (redisError) {
-      console.error('[BYTE EMAIL] ⚠️ Redis unavailable, continuing without history:', redisError)
+      emailLog.warn({ err: redisError }, 'Redis unavailable, continuing without history')
       redisAvailable = false
     }
 
-    // Add incoming message (use cleaned content without "Think" trigger)
     history.push({
       role: 'user',
       content: processedEmailContent,
@@ -282,17 +280,16 @@ export async function handleEmailWebhook(c: Context) {
       metadata: { from, subject, emailId: email_id, thinkingRequested: useThinking },
     })
 
-    console.log(
-      `[BYTE EMAIL] Thread: ${threadId} (${history.length} messages)${!redisAvailable ? ' [NO HISTORY - Redis down]' : ''}`,
+    emailLog.info(
+      { threadId, messageCount: history.length, redisAvailable },
+      'Conversation thread loaded',
     )
 
     // ─────────────────────────────────────────────────────────────────────────
     // GENERATE BYTE'S RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
 
-    console.log(
-      `[BYTE EMAIL] Generating response...${useThinking ? ' (with extended thinking)' : ''}`,
-    )
+    emailLog.info({ thinking: useThinking }, 'Generating response')
 
     let byteResponse: string
 
@@ -307,14 +304,12 @@ export async function handleEmailWebhook(c: Context) {
         useThinking,
       })
 
-      // Add attachment warning if needed
       if (attachmentWarning) {
         byteResponse = byteResponse.replace(/— Byte.*$/s, attachmentWarning + '\n\n— Byte')
       }
     } catch (claudeError) {
-      console.error('[BYTE EMAIL] ❌ Claude API failed:', claudeError)
+      emailLog.error({ err: claudeError }, 'Claude API failed')
 
-      // Send styled API error email
       await sendErrorEmail({
         to: from,
         subject: `Re: ${cleanSubject}`,
@@ -325,7 +320,7 @@ export async function handleEmailWebhook(c: Context) {
       return c.json({ error: 'AI response generation failed' }, 500)
     }
 
-    console.log(`[BYTE EMAIL] Response length: ${byteResponse.length} chars`)
+    emailLog.info({ responseLength: byteResponse.length }, 'Response generated')
 
     // ─────────────────────────────────────────────────────────────────────────
     // STORE IN REDIS (graceful degradation)
@@ -340,15 +335,12 @@ export async function handleEmailWebhook(c: Context) {
           timestamp: Date.now(),
         })
 
-        // Keep last 50 messages, expire after 30 days
         await redis.set(conversationKey, history.slice(-50), { ex: 60 * 60 * 24 * 30 })
-
-        // Index for cross-channel awareness (voice/chat can see email threads)
         await redis.zadd('byte:conversations:all', { score: Date.now(), member: threadId })
 
-        console.log(`[BYTE EMAIL] Conversation saved to Redis`)
+        emailLog.info('Conversation saved to Redis')
       } catch (redisSaveError) {
-        console.error('[BYTE EMAIL] ⚠️ Failed to save to Redis (non-fatal):', redisSaveError)
+        emailLog.warn({ err: redisSaveError }, 'Failed to save to Redis (non-fatal)')
       }
     }
 
@@ -373,9 +365,8 @@ export async function handleEmailWebhook(c: Context) {
     })
 
     if (!sendResult.success) {
-      console.error('[BYTE EMAIL] ❌ Failed to send reply:', sendResult.error)
+      emailLog.error({ err: sendResult.error }, 'Failed to send reply')
 
-      // Try to send error notification (different email)
       await sendErrorEmail({
         to: from,
         subject: `Re: ${cleanSubject}`,
@@ -386,20 +377,18 @@ export async function handleEmailWebhook(c: Context) {
       return c.json({ error: 'Failed to send reply' }, 500)
     }
 
-    const duration = Date.now() - startTime
-    console.log(`[BYTE EMAIL] ✅ Replied to ${from} (${duration}ms)`)
-    console.log(`${'═'.repeat(60)}\n`)
+    const durationMs = Date.now() - startTime
+    emailLog.info({ durationMs, replied: true }, 'Email processed successfully')
 
     return c.json({
       received: true,
       processed: true,
       replied: true,
-      duration_ms: duration,
+      duration_ms: durationMs,
     })
   } catch (error) {
-    console.error('[BYTE EMAIL] ❌ Unexpected error:', error)
+    log.error({ err: error }, 'Unexpected error in webhook handler')
 
-    // Try to notify user if we have their email
     if (senderEmail && cleanSubject) {
       try {
         await sendErrorEmail({
@@ -415,7 +404,7 @@ export async function handleEmailWebhook(c: Context) {
           }),
         })
       } catch (notifyError) {
-        console.error('[BYTE EMAIL] Could not send error notification:', notifyError)
+        log.error({ err: notifyError }, 'Could not send error notification')
       }
     }
 
@@ -427,15 +416,14 @@ export async function handleEmailWebhook(c: Context) {
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Check rate limit with graceful degradation if Redis is down
- */
-async function checkRateLimitSafe(from: string): Promise<{ allowed: boolean; reason?: string }> {
+async function checkRateLimitSafe(
+  from: string,
+  log: ReturnType<typeof createRequestLogger>,
+): Promise<{ allowed: boolean; reason?: string }> {
   try {
     return await checkRateLimit(from)
   } catch (error) {
-    console.error('[BYTE EMAIL] ⚠️ Rate limit check failed (allowing request):', error)
-    // If Redis is down, allow the request but log it
+    log.warn({ err: error }, 'Rate limit check failed (allowing request)')
     return { allowed: true }
   }
 }
@@ -444,20 +432,18 @@ async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?
   const hourKey = `byte:email:rate:hour:${from}`
   const dayKey = `byte:email:rate:day:${from}`
 
-  // Check hourly limit
   const hourlyCount = await redis.incr(hourKey)
   if (hourlyCount === 1) {
-    await redis.expire(hourKey, 3600) // 1 hour
+    await redis.expire(hourKey, 3600)
   }
 
   if (hourlyCount > RATE_LIMIT_PER_HOUR) {
     return { allowed: false, reason: `hourly limit (${RATE_LIMIT_PER_HOUR})` }
   }
 
-  // Check daily limit
   const dailyCount = await redis.incr(dayKey)
   if (dailyCount === 1) {
-    await redis.expire(dayKey, 86400) // 24 hours
+    await redis.expire(dayKey, 86400)
   }
 
   if (dailyCount > RATE_LIMIT_PER_DAY) {
@@ -467,9 +453,11 @@ async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?
   return { allowed: true }
 }
 
-async function fetchEmailContent(emailId: string): Promise<string | null> {
+async function fetchEmailContent(
+  emailId: string,
+  log: ReturnType<typeof createRequestLogger>,
+): Promise<string | null> {
   try {
-    // Use /emails/receiving/ endpoint for inbound emails (not /emails/)
     const response = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
@@ -478,13 +466,12 @@ async function fetchEmailContent(emailId: string): Promise<string | null> {
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[BYTE EMAIL] Resend API error: ${response.status}`, errorText)
+      log.error({ status: response.status, body: errorText }, 'Resend API error')
       return null
     }
 
     const email = (await response.json()) as { text?: string; html?: string }
 
-    // Prefer plain text, fall back to stripped HTML
     if (email.text) {
       return email.text
     }
@@ -495,7 +482,7 @@ async function fetchEmailContent(emailId: string): Promise<string | null> {
 
     return 'No content'
   } catch (error) {
-    console.error('[BYTE EMAIL] Error fetching email:', error)
+    log.error({ err: error }, 'Error fetching email')
     return null
   }
 }

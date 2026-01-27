@@ -1,6 +1,9 @@
 /**
  * Retry utility with exponential backoff
  */
+import { logger } from './logger'
+
+const log = logger.child({ module: 'retry' })
 
 interface RetryOptions {
   maxAttempts?: number
@@ -57,9 +60,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
       }
 
       const delay = calculateDelay(attempt, baseDelayMs, maxDelayMs)
-      console.log(
-        `[RETRY] Attempt ${attempt}/${maxAttempts} failed, retrying in ${Math.round(delay)}ms...`,
-      )
+      log.info({ attempt, maxAttempts, delayMs: Math.round(delay) }, 'Attempt failed, retrying')
 
       if (onRetry) {
         onRetry(attempt, lastError)

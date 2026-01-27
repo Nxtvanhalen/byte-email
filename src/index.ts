@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { handleEmailWebhook } from './handlers/email'
 import { formatByteEmailHtml } from './lib/email-template'
+import { logger } from './lib/logger'
 
 const app = new Hono()
 const PORT = process.env.PORT || 3000
@@ -90,12 +91,15 @@ app.post('/api/email/webhook', handleEmailWebhook)
 // Test webhook endpoint - logs what's received without verification
 app.post('/api/email/test-webhook', async (c) => {
   const payload = await c.req.text()
-  console.log('[TEST WEBHOOK] ════════════════════════════════════════')
-  console.log('[TEST WEBHOOK] Content-Type:', c.req.header('content-type'))
-  console.log('[TEST WEBHOOK] Svix-ID:', c.req.header('svix-id'))
-  console.log('[TEST WEBHOOK] Payload length:', payload.length)
-  console.log('[TEST WEBHOOK] Payload:', payload.substring(0, 500))
-  console.log('[TEST WEBHOOK] ════════════════════════════════════════')
+  logger.debug(
+    {
+      contentType: c.req.header('content-type'),
+      svixId: c.req.header('svix-id'),
+      payloadLength: payload.length,
+      payloadPreview: payload.substring(0, 500),
+    },
+    'Test webhook received',
+  )
 
   return c.json({
     received: true,
@@ -115,17 +119,12 @@ const server = Bun.serve({
   fetch: app.fetch,
 })
 
-console.log(`
-╔═══════════════════════════════════════════════════════════════╗
-║                                                               ║
-║   ⚡ BYTE EMAIL SERVICE                                       ║
-║                                                               ║
-║   Status:   Running                                           ║
-║   Runtime:  Bun ${Bun.version}                                       ║
-║   Port:     ${server.port}                                              ║
-║   Endpoint: /api/email/webhook                                ║
-║                                                               ║
-║   Email:    byte@chrisleebergstrom.com                        ║
-║                                                               ║
-╚═══════════════════════════════════════════════════════════════╝
-`)
+logger.info(
+  {
+    runtime: `Bun ${Bun.version}`,
+    port: server.port,
+    endpoint: '/api/email/webhook',
+    email: 'byte@chrisleebergstrom.com',
+  },
+  'Byte Email Service started',
+)

@@ -1,5 +1,8 @@
 import { Resend } from 'resend'
 import { withRetry } from '../lib/retry'
+import { logger } from '../lib/logger'
+
+const log = logger.child({ service: 'resend' })
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -12,7 +15,7 @@ const RESEND_RETRY_OPTIONS = {
   baseDelayMs: 1000,
   maxDelayMs: 5000,
   onRetry: (attempt: number, error: Error) => {
-    console.log(`[RESEND] Retry ${attempt}: ${error.message}`)
+    log.warn({ attempt, err: error.message }, 'Resend retry')
   },
 }
 
@@ -46,11 +49,11 @@ export async function sendByteReply(
       return response
     }, RESEND_RETRY_OPTIONS)
 
-    console.log(`[RESEND] ✓ Email sent to ${to} (id: ${result.data?.id})`)
+    log.info({ to, emailId: result.data?.id }, 'Email sent')
     return { success: true }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[RESEND] Failed to send email after retries:', errorMessage)
+    log.error({ to, err: errorMessage }, 'Failed to send email after retries')
     return { success: false, error: errorMessage }
   }
 }
@@ -73,10 +76,10 @@ export async function sendErrorEmail(options: {
       html: options.html,
       replyTo: BYTE_EMAIL,
     })
-    console.log(`[RESEND] Error notification sent to ${options.to}`)
+    log.info({ to: options.to }, 'Error notification sent')
   } catch (error) {
     // Don't throw on error email failure - just log
-    console.error('[RESEND] Failed to send error email:', error)
+    log.error({ err: error, to: options.to }, 'Failed to send error email')
   }
 }
 
@@ -98,9 +101,9 @@ export async function sendThinkingAck(options: {
       html: options.html,
       replyTo: BYTE_EMAIL,
     })
-    console.log(`[RESEND] Thinking acknowledgment sent to ${options.to}`)
+    log.info({ to: options.to }, 'Thinking acknowledgment sent')
   } catch (error) {
     // Don't throw on ack failure - the real response will come later
-    console.error('[RESEND] Failed to send thinking ack:', error)
+    log.error({ err: error, to: options.to }, 'Failed to send thinking ack')
   }
 }
