@@ -24,6 +24,8 @@ import { createRequestLogger } from '../lib/logger'
 
 const RATE_LIMIT_PER_HOUR = 15
 const RATE_LIMIT_PER_DAY = 50
+const GLOBAL_RATE_LIMIT_PER_HOUR = 500
+const IDEMPOTENCY_TTL = 86400 // 24 hours
 
 interface EmailReceivedEvent {
   type: 'email.received'
@@ -145,6 +147,26 @@ export async function handleEmailWebhook(c: Context) {
     }
 
     emailLog.info('Processing new email')
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // IDEMPOTENCY CHECK (prevent duplicate processing on webhook retries)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    try {
+      const idempotencyKey = `byte:email:processed:${email_id}`
+      const alreadyProcessed = await redis.set(idempotencyKey, Date.now(), {
+        nx: true,
+        ex: IDEMPOTENCY_TTL,
+      })
+
+      if (!alreadyProcessed) {
+        emailLog.warn('Duplicate webhook detected, skipping')
+        return c.json({ received: true, processed: false, reason: 'duplicate' })
+      }
+    } catch (idempotencyError) {
+      // Fail open — if Redis is down, process anyway (risk of duplicate is better than dropping)
+      emailLog.warn({ err: idempotencyError }, 'Idempotency check failed (processing anyway)')
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // RATE LIMITING
@@ -429,6 +451,18 @@ async function checkRateLimitSafe(
 }
 
 async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?: string }> {
+  // Global rate limit — protects Claude API budget from burst traffic
+  const globalKey = 'byte:email:rate:global:hour'
+  const globalCount = await redis.incr(globalKey)
+  if (globalCount === 1) {
+    await redis.expire(globalKey, 3600)
+  }
+
+  if (globalCount > GLOBAL_RATE_LIMIT_PER_HOUR) {
+    return { allowed: false, reason: `global hourly limit (${GLOBAL_RATE_LIMIT_PER_HOUR})` }
+  }
+
+  // Per-sender rate limits
   const hourKey = `byte:email:rate:hour:${from}`
   const dayKey = `byte:email:rate:day:${from}`
 
