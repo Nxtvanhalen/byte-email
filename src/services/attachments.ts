@@ -1,4 +1,3 @@
-import { PDFParse } from 'pdf-parse'
 import * as XLSX from 'xlsx'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -14,9 +13,9 @@ export interface AttachmentInfo {
 export interface ProcessedAttachment {
   filename: string
   type: 'image' | 'pdf' | 'excel' | 'unsupported'
-  content?: string // For PDF/Excel: extracted text
-  base64?: string // For images: base64 data
-  mediaType?: string // For images: media type
+  content?: string // For Excel: extracted text
+  base64?: string // For images and PDFs: base64 data
+  mediaType?: string // For images: media type. For PDFs: 'application/pdf'
   error?: string
 }
 
@@ -147,20 +146,19 @@ export async function processAttachments(
           console.log(`[ATTACHMENTS] ✓ Image processed: ${attachment.filename}`)
           break
 
-        case 'pdf': {
-          const parser = new PDFParse({ data: buffer })
-          const pdfResult = await parser.getText()
-          const pdfText = pdfResult.text || ''
+        case 'pdf':
+          // Send as base64 for Claude's native PDF document understanding
+          // Claude visually processes the PDF, preserving tables, charts, and layout
           results.push({
             filename: attachment.filename,
             type: 'pdf',
-            content: pdfText.trim() || 'No text content extracted from PDF',
+            base64: buffer.toString('base64'),
+            mediaType: 'application/pdf',
           })
           console.log(
-            `[ATTACHMENTS] ✓ PDF processed: ${attachment.filename} (${pdfText.length} chars)`,
+            `[ATTACHMENTS] ✓ PDF prepared for Claude vision: ${attachment.filename} (${buffer.length} bytes)`,
           )
           break
-        }
 
         case 'excel': {
           const workbook = XLSX.read(buffer, { type: 'buffer' })
@@ -206,11 +204,12 @@ export function formatAttachmentsForPrompt(attachments: ProcessedAttachment[]): 
   for (const att of attachments) {
     if (att.error) {
       parts.push(`[Attachment: ${att.filename} - ${att.error}]`)
-    } else if (att.type === 'pdf' || att.type === 'excel') {
+    } else if (att.type === 'excel') {
       parts.push(
         `\n--- Attachment: ${att.filename} ---\n${att.content}\n--- End of ${att.filename} ---\n`,
       )
     }
+    // PDFs are now handled via Claude's native document blocks (not text extraction)
     // Images are handled separately via Claude's vision API
   }
 
@@ -223,4 +222,12 @@ export function formatAttachmentsForPrompt(attachments: ProcessedAttachment[]): 
 
 export function getImageAttachments(attachments: ProcessedAttachment[]): ProcessedAttachment[] {
   return attachments.filter((a) => a.type === 'image' && a.base64 && !a.error)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET PDF ATTACHMENTS FOR CLAUDE DOCUMENT BLOCKS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function getPdfAttachments(attachments: ProcessedAttachment[]): ProcessedAttachment[] {
+  return attachments.filter((a) => a.type === 'pdf' && a.base64 && !a.error)
 }

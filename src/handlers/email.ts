@@ -1,4 +1,4 @@
-import { Request, Response } from 'express'
+import type { Context } from 'hono'
 import { Webhook } from 'svix'
 import { redis } from '../services/redis'
 import { generateByteResponse, detectThinkingTrigger } from '../services/claude'
@@ -14,6 +14,7 @@ import {
   processAttachments,
   formatAttachmentsForPrompt,
   getImageAttachments,
+  getPdfAttachments,
 } from '../services/attachments'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -47,7 +48,7 @@ interface ConversationMessage {
 // MAIN WEBHOOK HANDLER
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function handleEmailWebhook(req: Request, res: Response) {
+export async function handleEmailWebhook(c: Context) {
   const startTime = Date.now()
 
   console.log('[BYTE EMAIL] ════════════════════════════════════════')
@@ -68,12 +69,12 @@ export async function handleEmailWebhook(req: Request, res: Response) {
 
     if (!webhookSecret) {
       console.error('[BYTE EMAIL] ❌ Missing RESEND_WEBHOOK_SECRET')
-      return res.status(500).json({ error: 'Server configuration error' })
+      return c.json({ error: 'Server configuration error' }, 500)
     }
 
-    const svixId = req.headers['svix-id'] as string
-    const svixTimestamp = req.headers['svix-timestamp'] as string
-    const svixSignature = req.headers['svix-signature'] as string
+    const svixId = c.req.header('svix-id')
+    const svixTimestamp = c.req.header('svix-timestamp')
+    const svixSignature = c.req.header('svix-signature')
 
     console.log('[BYTE EMAIL] Headers - svix-id:', svixId ? 'present' : 'missing')
     console.log('[BYTE EMAIL] Headers - svix-timestamp:', svixTimestamp ? 'present' : 'missing')
@@ -81,14 +82,14 @@ export async function handleEmailWebhook(req: Request, res: Response) {
 
     if (!svixId || !svixTimestamp || !svixSignature) {
       console.error('[BYTE EMAIL] ❌ Missing webhook headers')
-      return res.status(401).json({ error: 'Missing webhook headers' })
+      return c.json({ error: 'Missing webhook headers' }, 401)
     }
 
     const wh = new Webhook(webhookSecret)
     let event: EmailReceivedEvent
 
     try {
-      const payload = req.body.toString()
+      const payload = await c.req.text()
       console.log('[BYTE EMAIL] Payload length:', payload.length)
       console.log('[BYTE EMAIL] Payload preview:', payload.substring(0, 200))
 
@@ -102,7 +103,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
       console.log('[BYTE EMAIL] Event type:', event.type)
     } catch (err) {
       console.error('[BYTE EMAIL] ❌ Webhook verification failed:', err)
-      return res.status(401).json({ error: 'Invalid webhook signature' })
+      return c.json({ error: 'Invalid webhook signature' }, 401)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -111,7 +112,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
 
     if (event.type !== 'email.received') {
       console.log(`[BYTE EMAIL] Ignoring event type: ${event.type}`)
-      return res.json({ received: true, processed: false })
+      return c.json({ received: true, processed: false })
     }
 
     const { email_id, from, to, subject, attachments } = event.data
@@ -132,7 +133,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
 
     if (!toAddress.includes('byte@')) {
       console.log(`[BYTE EMAIL] Email not for Byte (to: ${toAddress}), skipping`)
-      return res.json({ received: true, processed: false, reason: 'not_for_byte' })
+      return c.json({ received: true, processed: false, reason: 'not_for_byte' })
     }
 
     console.log(`\n${'═'.repeat(60)}`)
@@ -158,7 +159,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         html: formatErrorEmailHtml({ type: 'rate_limit' }),
       })
 
-      return res.json({ received: true, processed: false, reason: 'rate_limited' })
+      return c.json({ received: true, processed: false, reason: 'rate_limited' })
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -185,7 +186,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         }),
       })
 
-      return res.status(500).json({ error: 'Failed to fetch email content' })
+      return c.json({ error: 'Failed to fetch email content' }, 500)
     }
 
     console.log(`[BYTE EMAIL] Content length: ${emailContent.length} chars`)
@@ -217,6 +218,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
 
     let attachmentContext = ''
     let processedImages: Awaited<ReturnType<typeof processAttachments>> = []
+    let processedPdfs: Awaited<ReturnType<typeof processAttachments>> = []
     let attachmentWarning = ''
 
     if (attachments && attachments.length > 0) {
@@ -226,11 +228,14 @@ export async function handleEmailWebhook(req: Request, res: Response) {
       try {
         const processed = await processAttachments(email_id, attachments)
 
-        // Get text content from PDFs/Excel
+        // Get text content from Excel (PDFs now go through Claude vision)
         attachmentContext = formatAttachmentsForPrompt(processed)
 
         // Get images for vision API
         processedImages = getImageAttachments(processed)
+
+        // Get PDFs for Claude native document understanding
+        processedPdfs = getPdfAttachments(processed)
 
         // Check for failures
         const failed = processed.filter((p) => p.error)
@@ -298,6 +303,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         subject,
         attachmentContext: attachmentContext || undefined,
         images: processedImages.length > 0 ? processedImages : undefined,
+        pdfs: processedPdfs.length > 0 ? processedPdfs : undefined,
         useThinking,
       })
 
@@ -316,7 +322,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         html: formatErrorEmailHtml({ type: 'api_error', retrying: false }),
       })
 
-      return res.status(500).json({ error: 'AI response generation failed' })
+      return c.json({ error: 'AI response generation failed' }, 500)
     }
 
     console.log(`[BYTE EMAIL] Response length: ${byteResponse.length} chars`)
@@ -377,14 +383,14 @@ export async function handleEmailWebhook(req: Request, res: Response) {
         html: formatErrorEmailHtml({ type: 'send_failed', retrying: true }),
       })
 
-      return res.status(500).json({ error: 'Failed to send reply' })
+      return c.json({ error: 'Failed to send reply' }, 500)
     }
 
     const duration = Date.now() - startTime
     console.log(`[BYTE EMAIL] ✅ Replied to ${from} (${duration}ms)`)
     console.log(`${'═'.repeat(60)}\n`)
 
-    return res.json({
+    return c.json({
       received: true,
       processed: true,
       replied: true,
@@ -413,7 +419,7 @@ export async function handleEmailWebhook(req: Request, res: Response) {
       }
     }
 
-    return res.status(500).json({ error: 'Internal server error' })
+    return c.json({ error: 'Internal server error' }, 500)
   }
 }
 

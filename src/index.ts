@@ -1,35 +1,35 @@
-import express from 'express'
+import { Hono } from 'hono'
 import { handleEmailWebhook } from './handlers/email'
 import { formatByteEmailHtml } from './lib/email-template'
 
-const app = express()
+const app = new Hono()
 const PORT = process.env.PORT || 3000
-
-// Raw body needed for webhook signature verification - accept any content type
-app.use('/api/email/webhook', express.raw({ type: '*/*' }))
-app.use('/api/email/test-webhook', express.raw({ type: '*/*' }))
-app.use(express.json())
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ROUTES
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Health check
-app.get('/', (req, res) => {
-  res.json({
+app.get('/', (c) => {
+  return c.json({
     service: 'Byte Email',
     status: 'operational',
+    runtime: 'bun',
     timestamp: new Date().toISOString(),
   })
 })
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy' })
+app.get('/health', (c) => {
+  return c.json({ status: 'healthy' })
 })
 
-// Debug endpoint - check env vars are set
-app.get('/debug', (req, res) => {
-  res.json({
+// Debug endpoint - development only
+app.get('/debug', (c) => {
+  if (process.env.NODE_ENV === 'production') {
+    return c.json({ error: 'Not available in production' }, 403)
+  }
+
+  return c.json({
     env: {
       RESEND_API_KEY: process.env.RESEND_API_KEY ? '✓ set' : '✗ missing',
       RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET ? '✓ set' : '✗ missing',
@@ -42,9 +42,7 @@ app.get('/debug', (req, res) => {
 })
 
 // Preview endpoint - see email template in browser
-app.get('/preview', (req, res) => {
-  // const { formatByteEmailHtml } = require('./lib/email-template')
-
+app.get('/preview', (c) => {
   const sampleResponse = `Hey Chris,
 
 Great question! Here's a breakdown of what you asked about:
@@ -83,26 +81,26 @@ Chris`
     originalDate: new Date(),
   })
 
-  res.send(html)
+  return c.html(html)
 })
 
 // Email webhook endpoint
 app.post('/api/email/webhook', handleEmailWebhook)
 
 // Test webhook endpoint - logs what's received without verification
-app.post('/api/email/test-webhook', (req, res) => {
-  const payload = req.body?.toString() || 'empty'
+app.post('/api/email/test-webhook', async (c) => {
+  const payload = await c.req.text()
   console.log('[TEST WEBHOOK] ════════════════════════════════════════')
-  console.log('[TEST WEBHOOK] Content-Type:', req.headers['content-type'])
-  console.log('[TEST WEBHOOK] Svix-ID:', req.headers['svix-id'])
+  console.log('[TEST WEBHOOK] Content-Type:', c.req.header('content-type'))
+  console.log('[TEST WEBHOOK] Svix-ID:', c.req.header('svix-id'))
   console.log('[TEST WEBHOOK] Payload length:', payload.length)
   console.log('[TEST WEBHOOK] Payload:', payload.substring(0, 500))
   console.log('[TEST WEBHOOK] ════════════════════════════════════════')
 
-  res.json({
+  return c.json({
     received: true,
-    contentType: req.headers['content-type'],
-    hasSignature: !!req.headers['svix-signature'],
+    contentType: c.req.header('content-type'),
+    hasSignature: !!c.req.header('svix-signature'),
     payloadLength: payload.length,
     payloadPreview: payload.substring(0, 100),
   })
@@ -112,18 +110,22 @@ app.post('/api/email/test-webhook', (req, res) => {
 // START SERVER
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.listen(PORT, () => {
-  console.log(`
+const server = Bun.serve({
+  port: PORT,
+  fetch: app.fetch,
+})
+
+console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
 ║   ⚡ BYTE EMAIL SERVICE                                       ║
 ║                                                               ║
 ║   Status:   Running                                           ║
-║   Port:     ${PORT}                                              ║
+║   Runtime:  Bun ${Bun.version}                                       ║
+║   Port:     ${server.port}                                              ║
 ║   Endpoint: /api/email/webhook                                ║
 ║                                                               ║
 ║   Email:    byte@chrisleebergstrom.com                        ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
-  `)
-})
+`)

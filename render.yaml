@@ -4,11 +4,11 @@
 services:
   - type: web
     name: byte-email
-    runtime: node
+    runtime: bun
     region: oregon
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    buildCommand: bun install
+    startCommand: bun src/index.ts
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

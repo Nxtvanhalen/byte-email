@@ -72,14 +72,24 @@ interface ContentBlockImage {
   }
 }
 
-type ContentBlock = ContentBlockText | ContentBlockImage
+interface ContentBlockDocument {
+  type: 'document'
+  source: {
+    type: 'base64'
+    media_type: 'application/pdf'
+    data: string
+  }
+}
+
+type ContentBlock = ContentBlockText | ContentBlockImage | ContentBlockDocument
 
 interface GenerateOptions {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
   from: string
   subject: string
-  attachmentContext?: string // Text from PDFs/Excel
+  attachmentContext?: string // Text from Excel
   images?: ProcessedAttachment[] // Image attachments
+  pdfs?: ProcessedAttachment[] // PDF attachments for native document understanding
   useThinking?: boolean // Enable extended thinking mode
 }
 
@@ -107,7 +117,7 @@ export function detectThinkingTrigger(content: string): {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function generateByteResponse(options: GenerateOptions): Promise<string> {
-  const { messages, from, subject, attachmentContext, images, useThinking } = options
+  const { messages, from, subject, attachmentContext, images, pdfs, useThinking } = options
 
   // Build system prompt
   let systemPrompt = `${BYTE_EMAIL_PERSONA}
@@ -123,28 +133,50 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
     systemPrompt += `\n\nIMPORTANT: The user has requested deep thinking on this. Take your time to reason through the problem carefully. At the END of your response (before your sign-off), include this acknowledgment: "I took my time on this one, as you asked."`
   }
 
-  // Build messages with potential image content
-  const claudeMessages: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = []
+  // Build messages with potential image/document content
+  // Using Anthropic.MessageParam with any cast for document blocks (beta feature)
+  const claudeMessages: Anthropic.MessageParam[] = []
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
 
-    // For the last user message, include images if present
-    if (msg.role === 'user' && i === messages.length - 1 && images && images.length > 0) {
+    // For the last user message, include images and PDFs if present
+    const hasMedia = (images && images.length > 0) || (pdfs && pdfs.length > 0)
+    if (msg.role === 'user' && i === messages.length - 1 && hasMedia) {
       const contentBlocks: ContentBlock[] = []
 
-      // Add images first
-      for (const img of images) {
-        if (img.base64 && img.mediaType) {
-          contentBlocks.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: img.mediaType as ImageMediaType,
-              data: img.base64,
-            },
-          })
-          console.log(`[CLAUDE] Adding image to prompt: ${img.filename}`)
+      // Add PDFs as native document blocks (Claude sees them visually)
+      // Document blocks are a beta feature — cast needed until SDK types are updated
+      if (pdfs) {
+        for (const pdf of pdfs) {
+          if (pdf.base64) {
+            contentBlocks.push({
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: pdf.base64,
+              },
+            } as any)
+            console.log(`[CLAUDE] Adding PDF document block: ${pdf.filename}`)
+          }
+        }
+      }
+
+      // Add images
+      if (images) {
+        for (const img of images) {
+          if (img.base64 && img.mediaType) {
+            contentBlocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: img.mediaType as ImageMediaType,
+                data: img.base64,
+              },
+            } as any)
+            console.log(`[CLAUDE] Adding image to prompt: ${img.filename}`)
+          }
         }
       }
 
@@ -152,11 +184,11 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
       contentBlocks.push({
         type: 'text',
         text: msg.content,
-      })
+      } as any)
 
       claudeMessages.push({
         role: 'user',
-        content: contentBlocks,
+        content: contentBlocks as any,
       })
     } else {
       // Regular text message
