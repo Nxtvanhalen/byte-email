@@ -16,6 +16,7 @@ import {
   getImageAttachments,
   getPdfAttachments,
 } from '../services/attachments'
+import { withRetry } from '../lib/retry'
 import { createRequestLogger } from '../lib/logger'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -492,19 +493,32 @@ async function fetchEmailContent(
   log: ReturnType<typeof createRequestLogger>,
 ): Promise<string | null> {
   try {
-    const response = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+    const email = await withRetry(
+      async () => {
+        const response = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
+          headers: {
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          },
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          const err = new Error(`Resend API ${response.status}: ${errorText}`)
+          ;(err as any).status = response.status
+          throw err
+        }
+
+        return (await response.json()) as { text?: string; html?: string }
       },
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      log.error({ status: response.status, body: errorText }, 'Resend API error')
-      return null
-    }
-
-    const email = (await response.json()) as { text?: string; html?: string }
+      {
+        maxAttempts: 3,
+        baseDelayMs: 1000,
+        maxDelayMs: 5000,
+        onRetry: (attempt, error) => {
+          log.warn({ attempt, err: error.message }, 'Email fetch retry')
+        },
+      },
+    )
 
     if (email.text) {
       return email.text
@@ -516,7 +530,7 @@ async function fetchEmailContent(
 
     return 'No content'
   } catch (error) {
-    log.error({ err: error }, 'Error fetching email')
+    log.error({ err: error }, 'Email fetch failed after retries')
     return null
   }
 }

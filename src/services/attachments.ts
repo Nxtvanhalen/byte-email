@@ -1,7 +1,10 @@
 import * as XLSX from 'xlsx'
+import { withRetry } from '../lib/retry'
 import { logger } from '../lib/logger'
 
 const log = logger.child({ service: 'attachments' })
+
+const MAX_PDF_SIZE_BYTES = 25 * 1024 * 1024 // 25MB — Claude's document limit
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -37,43 +40,59 @@ const EXCEL_TYPES = [
 
 async function fetchAttachment(emailId: string, attachmentId: string): Promise<Buffer | null> {
   try {
-    // First get the attachment metadata with download URL
-    const metaResponse = await fetch(
-      `https://api.resend.com/emails/receiving/${emailId}/attachments/${attachmentId}`,
+    return await withRetry(
+      async () => {
+        // First get the attachment metadata with download URL
+        const metaResponse = await fetch(
+          `https://api.resend.com/emails/receiving/${emailId}/attachments/${attachmentId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            },
+          },
+        )
+
+        if (!metaResponse.ok) {
+          const err = new Error(`Attachment metadata fetch failed: ${metaResponse.status}`)
+          ;(err as any).status = metaResponse.status
+          throw err
+        }
+
+        const metadata = (await metaResponse.json()) as {
+          download_url?: string
+          content?: string
+        }
+
+        // If there's a download URL, fetch the actual content
+        if (metadata.download_url) {
+          const contentResponse = await fetch(metadata.download_url)
+          if (!contentResponse.ok) {
+            const err = new Error(`Attachment download failed: ${contentResponse.status}`)
+            ;(err as any).status = contentResponse.status
+            throw err
+          }
+          const arrayBuffer = await contentResponse.arrayBuffer()
+          return Buffer.from(arrayBuffer)
+        }
+
+        // Some attachments might have base64 content directly
+        if (metadata.content) {
+          return Buffer.from(metadata.content, 'base64')
+        }
+
+        throw new Error('No download_url or content in metadata')
+      },
       {
-        headers: {
-          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        maxAttempts: 2,
+        baseDelayMs: 1000,
+        maxDelayMs: 3000,
+        onRetry: (attempt, error) => {
+          log.warn({ attempt, attachmentId, err: error.message }, 'Attachment fetch retry')
         },
       },
     )
-
-    if (!metaResponse.ok) {
-      log.error({ status: metaResponse.status }, 'Failed to get attachment metadata')
-      return null
-    }
-
-    const metadata = (await metaResponse.json()) as { download_url?: string; content?: string }
-
-    // If there's a download URL, fetch the actual content
-    if (metadata.download_url) {
-      const contentResponse = await fetch(metadata.download_url)
-      if (!contentResponse.ok) {
-        log.error({ status: contentResponse.status }, 'Failed to download attachment')
-        return null
-      }
-      const arrayBuffer = await contentResponse.arrayBuffer()
-      return Buffer.from(arrayBuffer)
-    }
-
-    // Some attachments might have base64 content directly
-    if (metadata.content) {
-      return Buffer.from(metadata.content, 'base64')
-    }
-
-    log.error('No download_url or content in metadata')
-    return null
   } catch (error) {
-    log.error({ err: error }, 'Error fetching attachment')
+    log.error({ err: error, attachmentId }, 'Attachment fetch failed after retries')
     return null
   }
 }
@@ -153,6 +172,20 @@ export async function processAttachments(
           break
 
         case 'pdf':
+          // Guard against oversized PDFs (Claude's limit is 25MB)
+          if (buffer.length > MAX_PDF_SIZE_BYTES) {
+            results.push({
+              filename: attachment.filename,
+              type: 'pdf',
+              error: `PDF too large (${Math.round(buffer.length / 1024 / 1024)}MB, max 25MB)`,
+            })
+            log.warn(
+              { filename: attachment.filename, sizeBytes: buffer.length },
+              'PDF exceeds size limit',
+            )
+            break
+          }
+
           // Send as base64 for Claude's native PDF document understanding
           // Claude visually processes the PDF, preserving tables, charts, and layout
           results.push({
