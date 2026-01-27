@@ -55,11 +55,11 @@ You send email -> byte@chrisleebergstrom.com
 - Clean subject lines (no accumulating "Re: Re: Re:")
 
 ### Rate Limiting & Spam Protection
-- 15 emails/hour per sender
-- 50 emails/day per sender
+- 10 emails/hour per sender
+- 25 emails/day per sender
 - 500 emails/hour global (protects Claude API budget)
 - In-memory fallback rate limiter when Redis is unavailable
-- Styled rate limit response emails
+- Detailed rate limit emails: tells user which limit was hit and when it resets
 
 ### Webhook Idempotency
 - Redis-based deduplication with 24-hour TTL
@@ -67,9 +67,10 @@ You send email -> byte@chrisleebergstrom.com
 - Fails open if Redis is down (processes anyway, risk of duplicate > dropping email)
 
 ### Input Guards
-- Email body capped at 100K characters (truncated with notice)
+- Email body capped at 50K characters (truncated with notice)
 - Max 5 attachments per email (excess listed by name, user invited to follow up)
 - PDF size capped at 25MB (Claude's document limit)
+- Total input tokens capped at 150K with intelligent truncation
 - Claude API timeout: 30s normal, 45s thinking mode
 
 ### Self-Aware Assistant
@@ -301,16 +302,27 @@ Pino structured logging throughout the codebase:
 
 | Limit                  | Value    | Purpose                    |
 | ---------------------- | -------- | -------------------------- |
-| Per-sender hourly      | 15       | Spam protection            |
-| Per-sender daily       | 50       | Spam protection            |
+| Per-sender hourly      | 10       | Spam protection            |
+| Per-sender daily       | 25       | Spam protection            |
 | Global hourly          | 500      | API budget protection      |
-| Email body             | 100K chars | Token blowout prevention |
+| Email body             | 50K chars | Token blowout prevention  |
 | Attachments per email  | 5        | Processing cap             |
 | PDF size               | 25MB     | Claude's document limit    |
+| Input token budget     | 150K     | Context overflow prevention|
 | Claude timeout         | 30s/45s  | Hang protection            |
 | Claude max tokens      | 4,096    | Response length (normal)   |
 | Claude max tokens      | 16,000   | Response length (thinking) |
 | Thinking budget        | 10,000   | Reasoning token budget     |
+
+### Token Budget Management
+
+If total input tokens exceed 150K (leaving room for response in Claude's 200K context), the system automatically truncates in priority order:
+1. **Conversation history** — oldest messages dropped first
+2. **PDF attachments** — most expensive, dropped next
+3. **Image attachments** — dropped next
+4. **Email content** — truncated only as last resort
+
+Users are notified what was truncated and invited to send content separately if needed.
 
 ### Service Tier Requirements
 
