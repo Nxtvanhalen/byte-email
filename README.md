@@ -1,6 +1,6 @@
 # Byte Email
 
-Email interface for Byte AI assistant. Send an email to Byte and get an intelligent response.
+Email interface for Byte AI assistant. Send an email to Byte and get an intelligent response. No app, no login, no website. Just email.
 
 **Status:** PRODUCTION READY & DEPLOYED
 **Live:** https://byte-email.onrender.com
@@ -18,22 +18,30 @@ You send email -> byte@chrisleebergstrom.com
                         |
               Webhook triggers this service
                         |
-              Claude Haiku 4.5 generates response
+              Idempotency check (skip duplicates)
                         |
-              Byte replies to your email
+              Rate limit check (per-sender + global)
+                        |
+              Fetch email content (3 retries)
+                        |
+              Process attachments (2 retries each)
+                        |
+              Claude Haiku 4.5 generates response (3 retries, 30s timeout)
+                        |
+              Byte replies to your email (2 retries)
 ```
 
 ---
 
 ## Tech Stack
 
-- **Runtime:** Bun
+- **Runtime:** Bun (Anthropic-acquired, native TypeScript)
 - **Server:** Hono (zero-dependency, Bun-native)
 - **AI Model:** Claude Haiku 4.5 (`claude-haiku-4-5-20251001`)
-- **Email:** Resend (inbound + outbound)
-- **Database:** Upstash Redis
+- **Email:** Resend (inbound webhooks + outbound sending)
+- **Database:** Upstash Redis (conversations, rate limits, idempotency)
 - **Logging:** Pino (structured JSON in production, pretty-printed in dev)
-- **Hosting:** Render (native Bun runtime)
+- **Hosting:** Render (native Bun runtime, paid tier)
 - **Code Quality:** ESLint, Prettier, Husky pre-commit hooks
 
 ---
@@ -49,7 +57,25 @@ You send email -> byte@chrisleebergstrom.com
 ### Rate Limiting & Spam Protection
 - 15 emails/hour per sender
 - 50 emails/day per sender
-- Styled rate limit responses
+- 500 emails/hour global (protects Claude API budget)
+- In-memory fallback rate limiter when Redis is unavailable
+- Styled rate limit response emails
+
+### Webhook Idempotency
+- Redis-based deduplication with 24-hour TTL
+- Prevents duplicate replies when Resend retries webhooks
+- Fails open if Redis is down (processes anyway, risk of duplicate > dropping email)
+
+### Input Guards
+- Email body capped at 100K characters (truncated with notice)
+- Max 5 attachments per email (excess listed by name, user invited to follow up)
+- PDF size capped at 25MB (Claude's document limit)
+- Claude API timeout: 30s normal, 45s thinking mode
+
+### Self-Aware Assistant
+- Byte knows how it works and can explain itself when asked
+- Understands its own capabilities, limitations, and email-based interface
+- Can guide new users: "just email me, attach files, use THINK for deep reasoning"
 
 ### Dark Mode Email Design
 - Pure black background (#000000)
@@ -57,12 +83,6 @@ You send email -> byte@chrisleebergstrom.com
 - Soft white text (#E8E8E8) for readability
 - Full-width 700px layout
 - Email client compatible (table-based, inline styles)
-
-### Error Handling & Resilience
-- Retry logic with exponential backoff + jitter
-- Graceful degradation for all failure points
-- Styled error emails that maintain Byte's personality
-- "Thinking" acknowledgment emails
 
 ---
 
@@ -88,23 +108,37 @@ THINK - why isn't this function returning the right value?
 
 ## Attachment Processing
 
-| Type                             | Method                    | Status  |
-| -------------------------------- | ------------------------- | ------- |
-| **Images (PNG, JPG, GIF, WebP)** | Claude Vision API         | Working |
-| **PDF**                          | Claude native document vision | Working |
-| **Excel/CSV**                    | `xlsx` library -> text    | Working |
+| Type                             | Method                        | Limit   |
+| -------------------------------- | ----------------------------- | ------- |
+| **Images (PNG, JPG, GIF, WebP)** | Claude Vision API (base64)    | 5/email |
+| **PDF**                          | Claude native document vision | 25MB    |
+| **Excel/CSV**                    | `xlsx` library -> text        | 5/email |
 
 ### PDF Native Vision
 PDFs are sent directly to Claude as document content blocks. Claude visually processes each page, preserving tables, charts, diagrams, and layout. No local parsing library needed.
 
+### Attachment Overflow
+If more than 5 attachments are sent, Byte processes the first 5 and replies with the specific filenames it analyzed, which were skipped, and invites the user to send the rest in a follow-up email. Thread continuity means the follow-up already has context.
+
 ### Graceful Degradation
 - If attachment processing fails, Byte still responds to the text
-- User is notified which attachments couldn't be processed
+- User is notified which attachments couldn't be processed by filename
 - Partial success is better than total failure
 
 ---
 
-## Error Handling System
+## Resilience System
+
+### Retry Coverage (every external call)
+
+| External Call       | Retries | Backoff            | Timeout |
+| ------------------- | ------- | ------------------ | ------- |
+| Fetch email content | 3       | 1s -> 2s -> 4s     | —       |
+| Fetch attachment    | 2       | 1s -> 2s           | —       |
+| Claude API          | 3       | 1s -> 2s -> 4s     | 30s (45s thinking) |
+| Send reply (Resend) | 2       | 1s -> 2s           | —       |
+
+All retries use exponential backoff with 0-30% jitter to prevent thundering herd.
 
 ### Error Types & User Messages
 
@@ -118,34 +152,27 @@ PDFs are sent directly to Claude as document content blocks. Claude visually pro
 | `send_failed`       | "Reply Got Stuck"               | Email sending failed, auto-retrying    |
 | `unknown`           | "Something Went Wrong"          | Generic fallback                       |
 
-### Retry Logic
-
-**Claude API:**
-- 3 attempts maximum
-- Exponential backoff: 1s -> 2s -> 4s
-- Retries on: rate limits, 5xx errors, timeouts, overloaded
-
-**Resend Email:**
-- 2 attempts maximum
-- Exponential backoff: 1s -> 2s
-- Retries on: network errors, server errors
-
 ### Graceful Degradation Matrix
 
-| Failure Point          | Fallback Behavior                      |
-| ---------------------- | -------------------------------------- |
-| Redis unavailable      | Process without history, still respond |
-| Attachment fails       | Respond to text, note failure in reply |
-| Claude API fails       | Send styled error email after retries  |
-| Send reply fails       | Send error notification email          |
-| Rate limit check fails | Allow request (fail open)              |
+| Failure Point          | Fallback Behavior                                    |
+| ---------------------- | ---------------------------------------------------- |
+| Redis unavailable      | In-memory rate limiting, process without history      |
+| Rate limit check fails | In-memory sliding window enforces same limits         |
+| Idempotency check fails| Process anyway (duplicate risk < dropped email risk)  |
+| Attachment fails       | Respond to text, note failure by filename in reply    |
+| Claude API hangs       | 30s abort, auto-retry up to 3 attempts               |
+| Claude API fails       | Send styled error email after retries                 |
+| Send reply fails       | Send error notification email                         |
+| Email body too large   | Truncate at 100K chars with notice                    |
+| Too many attachments   | Process first 5, list skipped files, invite follow-up |
+| PDF too large          | Skip with size error, process other attachments       |
 
 ---
 
 ## Architecture
 
 ```
-Sender (any email)
+Sender (any email, any device)
        |
 byte@chrisleebergstrom.com
        |
@@ -155,18 +182,20 @@ Resend Inbound (MX records, stores email)
 Render Service (byte-email, Bun + Hono)
        |
        |-> Verify signature (Svix)
-       |-> Rate limit check (Redis)         <- graceful fail
-       |-> Fetch email content (Resend API)
+       |-> Idempotency check (Redis SET NX)    <- fail open
+       |-> Rate limit check (Redis + memory)   <- in-memory fallback
+       |-> Fetch email content (Resend API)    <- 3 retries
+       |-> Input size guard (100K chars)
        |-> Detect THINK trigger
        |-> Send thinking ack (if THINK mode)
-       |-> Process attachments               <- graceful fail
-       |-> Load conversation history (Redis)
-       |-> Generate response (Claude)        <- 3 retries
-       |-> Save to Redis                     <- graceful fail
-       |-> Send reply (Resend)               <- 2 retries
+       |-> Process attachments (max 5, 25MB)   <- 2 retries each
+       |-> Load conversation history (Redis)   <- graceful fail
+       |-> Generate response (Claude)          <- 3 retries, 30s timeout
+       |-> Save to Redis                       <- graceful fail
+       |-> Send reply (Resend)                 <- 2 retries
        v
 Reply arrives in sender's inbox
-(or error email if something broke)
+(or styled error email if something broke)
 ```
 
 ---
@@ -177,17 +206,17 @@ Reply arrives in sender's inbox
 src/
 ├── index.ts                    # Hono server, routes, Bun.serve()
 ├── handlers/
-│   └── email.ts               # Main webhook handler with error handling
+│   └── email.ts               # Main webhook handler, idempotency, rate limiting
 ├── services/
-│   ├── claude.ts              # Claude API with retry logic
+│   ├── claude.ts              # Claude API with retry + timeout, Byte personality
 │   ├── redis.ts               # Upstash Redis client
 │   ├── resend.ts              # Email sending with retries
-│   └── attachments.ts         # Image/PDF/Excel processing
+│   └── attachments.ts         # Image/PDF/Excel processing with retries
 └── lib/
-    ├── logger.ts              # Pino structured logging
+    ├── logger.ts              # Pino structured logging config
     ├── email-template.ts      # Main HTML email template (dark mode)
     ├── error-templates.ts     # Styled error & acknowledgment emails
-    └── retry.ts               # Exponential backoff utility
+    └── retry.ts               # Exponential backoff utility with jitter
 ```
 
 ---
@@ -262,6 +291,42 @@ Pino structured logging throughout the codebase:
 - **Development:** Pretty-printed with colors and timestamps via `pino-pretty`
 - **Child loggers:** Request-scoped context (email ID, sender, subject) for tracing individual email journeys
 - **Log levels:** debug, info, warn, error
+- **Service tags:** Each module has its own child logger (`service: 'claude'`, `service: 'resend'`, etc.)
+
+---
+
+## Scaling
+
+### Current Limits (code-enforced)
+
+| Limit                  | Value    | Purpose                    |
+| ---------------------- | -------- | -------------------------- |
+| Per-sender hourly      | 15       | Spam protection            |
+| Per-sender daily       | 50       | Spam protection            |
+| Global hourly          | 500      | API budget protection      |
+| Email body             | 100K chars | Token blowout prevention |
+| Attachments per email  | 5        | Processing cap             |
+| PDF size               | 25MB     | Claude's document limit    |
+| Claude timeout         | 30s/45s  | Hang protection            |
+| Claude max tokens      | 4,096    | Response length (normal)   |
+| Claude max tokens      | 16,000   | Response length (thinking) |
+| Thinking budget        | 10,000   | Reasoning token budget     |
+
+### Service Tier Requirements
+
+| Users/Day | Resend          | Upstash Redis     | Render         | Claude API     |
+| --------- | --------------- | ----------------- | -------------- | -------------- |
+| < 30      | Free (100/day)  | Free (10K cmd/day)| Free           | ~$1/month      |
+| 100       | Free (borderline)| Free (borderline) | $7/month       | ~$5/month      |
+| 1,000     | Pro ($20/month) | Pay-as-you ($2)   | $7/month       | ~$150-360/month|
+| 10,000+   | Pro or SES      | Pro ($10/month)   | Auto-scale     | $1,500+/month  |
+
+### Future Scaling Considerations
+
+- **LLM Provider Flexibility:** Claude is called from a single file (`claude.ts`). Switching to OpenAI, Gemini, or Grok is a 1-file change for text. Full attachment parity (especially native PDF) varies by provider.
+- **Email Provider:** Resend handles both inbound and outbound. At 10K+ users/day, self-hosted SMTP inbound + Amazon SES outbound ($0.10/1000) would reduce costs significantly.
+- **Render Auto-scaling:** Available on Pro plan ($25/month per instance). Not needed until sustained high concurrency.
+- **Uptime Monitoring:** Recommended: UptimeRobot (free) pinging `/health` every 5 minutes with email alerts.
 
 ---
 
