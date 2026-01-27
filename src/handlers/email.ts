@@ -27,6 +27,8 @@ const RATE_LIMIT_PER_HOUR = 15
 const RATE_LIMIT_PER_DAY = 50
 const GLOBAL_RATE_LIMIT_PER_HOUR = 500
 const IDEMPOTENCY_TTL = 86400 // 24 hours
+const MAX_EMAIL_BODY_CHARS = 100_000 // ~100KB — prevents token blowout
+const MAX_ATTACHMENTS = 5 // Cap attachments per email
 
 interface EmailReceivedEvent {
   type: 'email.received'
@@ -233,7 +235,21 @@ export async function handleEmailWebhook(c: Context) {
       })
     }
 
-    const processedEmailContent = cleanedContent
+    // ─────────────────────────────────────────────────────────────────────────
+    // INPUT SIZE GUARD (prevent token blowout)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let processedEmailContent = cleanedContent
+
+    if (processedEmailContent.length > MAX_EMAIL_BODY_CHARS) {
+      emailLog.warn(
+        { originalLength: processedEmailContent.length, maxLength: MAX_EMAIL_BODY_CHARS },
+        'Email body truncated',
+      )
+      processedEmailContent =
+        processedEmailContent.slice(0, MAX_EMAIL_BODY_CHARS) +
+        '\n\n[Content truncated — email exceeded maximum length]'
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // HANDLE ATTACHMENTS (with graceful degradation)
@@ -244,12 +260,26 @@ export async function handleEmailWebhook(c: Context) {
     let processedPdfs: Awaited<ReturnType<typeof processAttachments>> = []
     let attachmentWarning = ''
 
-    if (attachments && attachments.length > 0) {
-      const fileNames = attachments.map((a) => a.filename).join(', ')
-      emailLog.info({ files: fileNames, count: attachments.length }, 'Processing attachments')
+    // Cap attachment count to prevent abuse
+    const cappedAttachments =
+      attachments && attachments.length > MAX_ATTACHMENTS
+        ? attachments.slice(0, MAX_ATTACHMENTS)
+        : attachments
+
+    if (cappedAttachments && cappedAttachments.length > 0) {
+      if (attachments && attachments.length > MAX_ATTACHMENTS) {
+        attachmentWarning = `\n\n[Note: You sent ${attachments.length} attachments. I processed the first ${MAX_ATTACHMENTS}.]`
+        emailLog.warn(
+          { sent: attachments.length, processed: MAX_ATTACHMENTS },
+          'Attachment count capped',
+        )
+      }
+
+      const fileNames = cappedAttachments.map((a) => a.filename).join(', ')
+      emailLog.info({ files: fileNames, count: cappedAttachments.length }, 'Processing attachments')
 
       try {
-        const processed = await processAttachments(email_id, attachments)
+        const processed = await processAttachments(email_id, cappedAttachments)
 
         attachmentContext = formatAttachmentsForPrompt(processed)
         processedImages = getImageAttachments(processed)

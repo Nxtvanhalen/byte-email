@@ -95,11 +95,13 @@ function isRetryableError(error: unknown): boolean {
       return true
     }
 
-    // Network errors - retry
+    // Network errors and timeouts - retry
     if (
       message.includes('network') ||
       message.includes('timeout') ||
-      message.includes('econnreset')
+      message.includes('econnreset') ||
+      message.includes('abort') ||
+      error.name === 'AbortError'
     ) {
       return true
     }

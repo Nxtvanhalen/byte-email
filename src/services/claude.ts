@@ -7,6 +7,10 @@ const log = logger.child({ service: 'claude' })
 
 const anthropic = new Anthropic()
 
+// Timeout: 30s normal, 45s thinking (thinking mode needs more time)
+const CLAUDE_TIMEOUT_MS = 30_000
+const CLAUDE_THINKING_TIMEOUT_MS = 45_000
+
 // Retry configuration for Claude API
 const CLAUDE_RETRY_OPTIONS = {
   maxAttempts: 3,
@@ -228,11 +232,17 @@ ${attachmentContext ? `\nATTACHMENT CONTENT:\n${attachmentContext}` : ''}`
       log.info({ budgetTokens: 10000 }, 'Extended thinking enabled')
     }
 
-    // Call API with retry logic
-    const response = await withRetry(
-      () => anthropic.messages.create(apiParams),
-      CLAUDE_RETRY_OPTIONS,
-    )
+    // Call API with retry logic + timeout per attempt
+    const timeoutMs = useThinking ? CLAUDE_THINKING_TIMEOUT_MS : CLAUDE_TIMEOUT_MS
+
+    const response = await withRetry(() => {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+      return anthropic.messages
+        .create(apiParams, { signal: controller.signal })
+        .finally(() => clearTimeout(timer))
+    }, CLAUDE_RETRY_OPTIONS)
 
     // Extract text response (thinking blocks are separate, we just want the text output)
     let textResponse = ''
