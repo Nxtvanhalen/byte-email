@@ -475,6 +475,41 @@ export async function handleEmailWebhook(c: Context) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// IN-MEMORY FALLBACK RATE LIMITER (when Redis is down)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Simple sliding window: tracks timestamps per sender + global
+const memoryRateLimit = {
+  global: [] as number[],
+  senders: new Map<string, number[]>(),
+
+  check(from: string): { allowed: boolean; reason?: string } {
+    const now = Date.now()
+    const oneHourAgo = now - 3_600_000
+
+    // Prune old global entries
+    this.global = this.global.filter((t) => t > oneHourAgo)
+    if (this.global.length >= GLOBAL_RATE_LIMIT_PER_HOUR) {
+      return { allowed: false, reason: `global hourly limit (${GLOBAL_RATE_LIMIT_PER_HOUR})` }
+    }
+
+    // Prune old sender entries
+    const senderTimes = (this.senders.get(from) || []).filter((t) => t > oneHourAgo)
+    if (senderTimes.length >= RATE_LIMIT_PER_HOUR) {
+      this.senders.set(from, senderTimes)
+      return { allowed: false, reason: `hourly limit (${RATE_LIMIT_PER_HOUR})` }
+    }
+
+    // Record this request
+    this.global.push(now)
+    senderTimes.push(now)
+    this.senders.set(from, senderTimes)
+
+    return { allowed: true }
+  },
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -485,8 +520,8 @@ async function checkRateLimitSafe(
   try {
     return await checkRateLimit(from)
   } catch (error) {
-    log.warn({ err: error }, 'Rate limit check failed (allowing request)')
-    return { allowed: true }
+    log.warn({ err: error }, 'Redis rate limit failed, using in-memory fallback')
+    return memoryRateLimit.check(from)
   }
 }
 
