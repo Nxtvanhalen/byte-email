@@ -23,12 +23,16 @@ import { createRequestLogger } from '../lib/logger'
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-const RATE_LIMIT_PER_HOUR = 15
-const RATE_LIMIT_PER_DAY = 50
+const RATE_LIMIT_PER_HOUR = 10
+const RATE_LIMIT_PER_DAY = 25
 const GLOBAL_RATE_LIMIT_PER_HOUR = 500
 const IDEMPOTENCY_TTL = 86400 // 24 hours
-const MAX_EMAIL_BODY_CHARS = 100_000 // ~100KB — prevents token blowout
+const MAX_EMAIL_BODY_CHARS = 50_000 // ~50KB — prevents token blowout
 const MAX_ATTACHMENTS = 5 // Cap attachments per email
+const MAX_INPUT_TOKENS = 150_000 // Leave room for response in Claude's 200K context
+const TOKENS_PER_CHAR = 0.3 // Rough estimate: ~3-4 chars per token
+const TOKENS_PER_PDF_PAGE = 1500 // Estimate for PDF vision
+const TOKENS_PER_IMAGE = 1000 // Estimate for image vision
 
 interface EmailReceivedEvent {
   type: 'email.received'
@@ -177,13 +181,24 @@ export async function handleEmailWebhook(c: Context) {
 
     const rateLimitResult = await checkRateLimitSafe(from, emailLog)
     if (!rateLimitResult.allowed) {
-      emailLog.warn({ reason: rateLimitResult.reason }, 'Rate limited')
+      emailLog.warn(
+        { reason: rateLimitResult.reason, limitType: rateLimitResult.limitType },
+        'Rate limited',
+      )
+
+      const rateLimitInfo = rateLimitResult.limitType
+        ? {
+            reason: rateLimitResult.reason || 'Rate limit exceeded',
+            limitType: rateLimitResult.limitType,
+            resetsIn: rateLimitResult.resetsIn,
+          }
+        : undefined
 
       await sendErrorEmail({
         to: from,
         subject: `Re: ${cleanSubject}`,
-        text: formatErrorEmailText({ type: 'rate_limit' }),
-        html: formatErrorEmailHtml({ type: 'rate_limit' }),
+        text: formatErrorEmailText({ type: 'rate_limit', rateLimitInfo }),
+        html: formatErrorEmailHtml({ type: 'rate_limit', rateLimitInfo }),
       })
 
       return c.json({ received: true, processed: false, reason: 'rate_limited' })
@@ -348,10 +363,50 @@ export async function handleEmailWebhook(c: Context) {
     )
 
     // ─────────────────────────────────────────────────────────────────────────
+    // TOKEN BUDGET MANAGEMENT (prevent context overflow)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const tokenBudget = estimateAndManageTokenBudget({
+      history,
+      emailContent: processedEmailContent,
+      images: processedImages,
+      pdfs: processedPdfs,
+      attachmentContext,
+      log: emailLog,
+    })
+
+    // Apply any truncations
+    if (tokenBudget.historyTruncated) {
+      history = tokenBudget.truncatedHistory
+      emailLog.warn(
+        { originalCount: history.length + tokenBudget.messagesDropped, newCount: history.length },
+        'Conversation history truncated to fit token budget',
+      )
+    }
+
+    if (tokenBudget.contentTruncated) {
+      processedEmailContent = tokenBudget.truncatedContent
+      emailLog.warn('Email content truncated further to fit token budget')
+    }
+
+    if (tokenBudget.attachmentsDropped > 0) {
+      processedImages = tokenBudget.truncatedImages
+      processedPdfs = tokenBudget.truncatedPdfs
+      attachmentWarning += `\n\n[Note: To fit within processing limits, I skipped ${tokenBudget.attachmentsDropped} attachment(s). Send them separately if needed.]`
+      emailLog.warn(
+        { dropped: tokenBudget.attachmentsDropped },
+        'Attachments dropped for token budget',
+      )
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // GENERATE BYTE'S RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
 
-    emailLog.info({ thinking: useThinking }, 'Generating response')
+    emailLog.info(
+      { thinking: useThinking, estimatedTokens: tokenBudget.totalTokens },
+      'Generating response',
+    )
 
     let byteResponse: string
 
@@ -483,21 +538,31 @@ const memoryRateLimit = {
   global: [] as number[],
   senders: new Map<string, number[]>(),
 
-  check(from: string): { allowed: boolean; reason?: string } {
+  check(from: string): RateLimitResult {
     const now = Date.now()
     const oneHourAgo = now - 3_600_000
 
     // Prune old global entries
     this.global = this.global.filter((t) => t > oneHourAgo)
     if (this.global.length >= GLOBAL_RATE_LIMIT_PER_HOUR) {
-      return { allowed: false, reason: `global hourly limit (${GLOBAL_RATE_LIMIT_PER_HOUR})` }
+      return {
+        allowed: false,
+        reason: 'Byte is experiencing high demand right now',
+        limitType: 'global',
+        resetsIn: 'about an hour',
+      }
     }
 
     // Prune old sender entries
     const senderTimes = (this.senders.get(from) || []).filter((t) => t > oneHourAgo)
     if (senderTimes.length >= RATE_LIMIT_PER_HOUR) {
       this.senders.set(from, senderTimes)
-      return { allowed: false, reason: `hourly limit (${RATE_LIMIT_PER_HOUR})` }
+      return {
+        allowed: false,
+        reason: `You've sent ${RATE_LIMIT_PER_HOUR} emails this hour`,
+        limitType: 'hourly',
+        resetsIn: 'about an hour',
+      }
     }
 
     // Record this request
@@ -505,8 +570,16 @@ const memoryRateLimit = {
     senderTimes.push(now)
     this.senders.set(from, senderTimes)
 
-    return { allowed: true }
+    return { allowed: true, remaining: RATE_LIMIT_PER_HOUR - senderTimes.length }
   },
+}
+
+interface RateLimitResult {
+  allowed: boolean
+  reason?: string
+  limitType?: 'hourly' | 'daily' | 'global'
+  remaining?: number
+  resetsIn?: string
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -516,7 +589,7 @@ const memoryRateLimit = {
 async function checkRateLimitSafe(
   from: string,
   log: ReturnType<typeof createRequestLogger>,
-): Promise<{ allowed: boolean; reason?: string }> {
+): Promise<RateLimitResult> {
   try {
     return await checkRateLimit(from)
   } catch (error) {
@@ -525,7 +598,7 @@ async function checkRateLimitSafe(
   }
 }
 
-async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?: string }> {
+async function checkRateLimit(from: string): Promise<RateLimitResult> {
   // Global rate limit — protects Claude API budget from burst traffic
   const globalKey = 'byte:email:rate:global:hour'
   const globalCount = await redis.incr(globalKey)
@@ -534,7 +607,13 @@ async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?
   }
 
   if (globalCount > GLOBAL_RATE_LIMIT_PER_HOUR) {
-    return { allowed: false, reason: `global hourly limit (${GLOBAL_RATE_LIMIT_PER_HOUR})` }
+    const ttl = await redis.ttl(globalKey)
+    return {
+      allowed: false,
+      reason: 'Byte is experiencing high demand right now',
+      limitType: 'global',
+      resetsIn: formatTimeRemaining(ttl),
+    }
   }
 
   // Per-sender rate limits
@@ -547,7 +626,14 @@ async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?
   }
 
   if (hourlyCount > RATE_LIMIT_PER_HOUR) {
-    return { allowed: false, reason: `hourly limit (${RATE_LIMIT_PER_HOUR})` }
+    const ttl = await redis.ttl(hourKey)
+    return {
+      allowed: false,
+      reason: `You've sent ${RATE_LIMIT_PER_HOUR} emails this hour`,
+      limitType: 'hourly',
+      remaining: 0,
+      resetsIn: formatTimeRemaining(ttl),
+    }
   }
 
   const dailyCount = await redis.incr(dayKey)
@@ -556,10 +642,27 @@ async function checkRateLimit(from: string): Promise<{ allowed: boolean; reason?
   }
 
   if (dailyCount > RATE_LIMIT_PER_DAY) {
-    return { allowed: false, reason: `daily limit (${RATE_LIMIT_PER_DAY})` }
+    const ttl = await redis.ttl(dayKey)
+    return {
+      allowed: false,
+      reason: `You've reached your daily limit of ${RATE_LIMIT_PER_DAY} emails`,
+      limitType: 'daily',
+      remaining: 0,
+      resetsIn: formatTimeRemaining(ttl),
+    }
   }
 
-  return { allowed: true }
+  return {
+    allowed: true,
+    remaining: Math.min(RATE_LIMIT_PER_HOUR - hourlyCount, RATE_LIMIT_PER_DAY - dailyCount),
+  }
+}
+
+function formatTimeRemaining(seconds: number): string {
+  if (seconds < 60) return 'less than a minute'
+  if (seconds < 3600) return `about ${Math.ceil(seconds / 60)} minutes`
+  if (seconds < 7200) return 'about an hour'
+  return `about ${Math.ceil(seconds / 3600)} hours`
 }
 
 async function fetchEmailContent(
@@ -621,4 +724,128 @@ function stripHtml(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOKEN BUDGET ESTIMATION AND MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface TokenBudgetInput {
+  history: ConversationMessage[]
+  emailContent: string
+  images: Awaited<ReturnType<typeof processAttachments>>
+  pdfs: Awaited<ReturnType<typeof processAttachments>>
+  attachmentContext: string
+  log: ReturnType<typeof createRequestLogger>
+}
+
+interface TokenBudgetResult {
+  totalTokens: number
+  historyTruncated: boolean
+  truncatedHistory: ConversationMessage[]
+  messagesDropped: number
+  contentTruncated: boolean
+  truncatedContent: string
+  attachmentsDropped: number
+  truncatedImages: Awaited<ReturnType<typeof processAttachments>>
+  truncatedPdfs: Awaited<ReturnType<typeof processAttachments>>
+}
+
+function estimateAndManageTokenBudget(input: TokenBudgetInput): TokenBudgetResult {
+  const { history, emailContent, images, pdfs, attachmentContext, log } = input
+
+  // Estimate tokens for each component
+  const systemPromptTokens = 2000 // Rough estimate for Byte's system prompt
+  const responseBufferTokens = 5000 // Leave room for response
+
+  let historyTokens = history.reduce(
+    (sum, msg) => sum + Math.ceil(msg.content.length * TOKENS_PER_CHAR),
+    0,
+  )
+  let contentTokens = Math.ceil(emailContent.length * TOKENS_PER_CHAR)
+  const attachmentContextTokens = Math.ceil(attachmentContext.length * TOKENS_PER_CHAR)
+  let imageTokens = images.length * TOKENS_PER_IMAGE
+  let pdfTokens = pdfs.length * TOKENS_PER_PDF_PAGE * 3 // Assume ~3 pages average
+
+  let totalTokens =
+    systemPromptTokens +
+    responseBufferTokens +
+    historyTokens +
+    contentTokens +
+    attachmentContextTokens +
+    imageTokens +
+    pdfTokens
+
+  log.debug(
+    {
+      systemPrompt: systemPromptTokens,
+      history: historyTokens,
+      content: contentTokens,
+      attachmentContext: attachmentContextTokens,
+      images: imageTokens,
+      pdfs: pdfTokens,
+      total: totalTokens,
+      budget: MAX_INPUT_TOKENS,
+    },
+    'Token budget estimate',
+  )
+
+  // Result trackers
+  const truncatedHistory = [...history]
+  let truncatedContent = emailContent
+  const truncatedImages = [...images]
+  const truncatedPdfs = [...pdfs]
+  let messagesDropped = 0
+  let attachmentsDropped = 0
+
+  // Step 1: Truncate history first (oldest messages, keep most recent)
+  while (totalTokens > MAX_INPUT_TOKENS && truncatedHistory.length > 1) {
+    const removed = truncatedHistory.shift()! // Remove oldest
+    const removedTokens = Math.ceil(removed.content.length * TOKENS_PER_CHAR)
+    totalTokens -= removedTokens
+    historyTokens -= removedTokens
+    messagesDropped++
+  }
+
+  // Step 2: Drop PDFs if still over (they're expensive)
+  while (totalTokens > MAX_INPUT_TOKENS && truncatedPdfs.length > 0) {
+    truncatedPdfs.pop()
+    totalTokens -= TOKENS_PER_PDF_PAGE * 3
+    pdfTokens -= TOKENS_PER_PDF_PAGE * 3
+    attachmentsDropped++
+  }
+
+  // Step 3: Drop images if still over
+  while (totalTokens > MAX_INPUT_TOKENS && truncatedImages.length > 0) {
+    truncatedImages.pop()
+    totalTokens -= TOKENS_PER_IMAGE
+    imageTokens -= TOKENS_PER_IMAGE
+    attachmentsDropped++
+  }
+
+  // Step 4: Truncate email content more aggressively if still over
+  if (totalTokens > MAX_INPUT_TOKENS) {
+    const maxContentChars = Math.floor(
+      (MAX_INPUT_TOKENS - totalTokens + contentTokens) / TOKENS_PER_CHAR,
+    )
+    if (maxContentChars > 1000) {
+      truncatedContent =
+        emailContent.slice(0, maxContentChars) + '\n\n[Content truncated to fit processing limits]'
+      totalTokens -= contentTokens
+      contentTokens = Math.ceil(truncatedContent.length * TOKENS_PER_CHAR)
+      totalTokens += contentTokens
+    }
+  }
+
+  return {
+    totalTokens,
+    historyTruncated: messagesDropped > 0,
+    truncatedHistory,
+    messagesDropped,
+    contentTruncated: truncatedContent !== emailContent,
+    truncatedContent,
+    attachmentsDropped,
+    truncatedImages,
+    truncatedPdfs,
+  }
 }

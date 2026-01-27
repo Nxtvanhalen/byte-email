@@ -17,6 +17,11 @@ interface ErrorEmailOptions {
   details?: string
   retrying?: boolean
   originalSubject?: string
+  rateLimitInfo?: {
+    reason: string
+    limitType: 'hourly' | 'daily' | 'global'
+    resetsIn?: string
+  }
 }
 
 const ERROR_MESSAGES: Record<ErrorType, { title: string; message: string; suggestion: string }> = {
@@ -65,8 +70,26 @@ const ERROR_MESSAGES: Record<ErrorType, { title: string; message: string; sugges
 }
 
 export function formatErrorEmailHtml(options: ErrorEmailOptions): string {
-  const { type, details, retrying } = options
-  const error = ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown
+  const { type, details, retrying, rateLimitInfo } = options
+  let error = ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown
+
+  // Override rate_limit message with specific info if provided
+  if (type === 'rate_limit' && rateLimitInfo) {
+    const limitTypeText =
+      rateLimitInfo.limitType === 'daily'
+        ? "You've hit your daily limit."
+        : rateLimitInfo.limitType === 'hourly'
+          ? "You've hit your hourly limit."
+          : "I'm experiencing high demand."
+
+    error = {
+      title: rateLimitInfo.limitType === 'daily' ? 'Daily Limit Reached' : 'Slow Down There',
+      message: `${rateLimitInfo.reason}. ${limitTypeText}`,
+      suggestion: rateLimitInfo.resetsIn
+        ? `Your limit resets in ${rateLimitInfo.resetsIn}. Save this email and send it then!`
+        : 'Try again later when your limit resets.',
+    }
+  }
 
   const retryingNote = retrying
     ? `<p style="margin:16px 0 0;padding:12px 16px;background:#1e1a2e;border-radius:6px;color:#9B7ED1;font-size:13px;">
@@ -141,8 +164,26 @@ export function formatErrorEmailHtml(options: ErrorEmailOptions): string {
 }
 
 export function formatErrorEmailText(options: ErrorEmailOptions): string {
-  const { type, details, retrying } = options
-  const error = ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown
+  const { type, details, retrying, rateLimitInfo } = options
+  let error = ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown
+
+  // Override rate_limit message with specific info if provided
+  if (type === 'rate_limit' && rateLimitInfo) {
+    const limitTypeText =
+      rateLimitInfo.limitType === 'daily'
+        ? "You've hit your daily limit."
+        : rateLimitInfo.limitType === 'hourly'
+          ? "You've hit your hourly limit."
+          : "I'm experiencing high demand."
+
+    error = {
+      title: rateLimitInfo.limitType === 'daily' ? 'Daily Limit Reached' : 'Slow Down There',
+      message: `${rateLimitInfo.reason}. ${limitTypeText}`,
+      suggestion: rateLimitInfo.resetsIn
+        ? `Your limit resets in ${rateLimitInfo.resetsIn}. Save this email and send it then!`
+        : 'Try again later when your limit resets.',
+    }
+  }
 
   let text = `⚡ Byte - ${error.title}\n\n`
   text += `${error.message}\n\n`
