@@ -268,9 +268,18 @@ export async function handleEmailWebhook(c: Context) {
 
     if (cappedAttachments && cappedAttachments.length > 0) {
       if (attachments && attachments.length > MAX_ATTACHMENTS) {
-        attachmentWarning = `\n\n[Note: You sent ${attachments.length} attachments. I processed the first ${MAX_ATTACHMENTS}.]`
+        const processedNames = cappedAttachments.map((a) => a.filename).join(', ')
+        const skippedNames = attachments
+          .slice(MAX_ATTACHMENTS)
+          .map((a) => a.filename)
+          .join(', ')
+        attachmentWarning =
+          `\n\n[Heads up: You sent ${attachments.length} attachments but I can handle ${MAX_ATTACHMENTS} at a time. ` +
+          `I analyzed: ${processedNames}. ` +
+          `Skipped: ${skippedNames}. ` +
+          `Feel free to send the rest in a follow-up and I'll take a look.]`
         emailLog.warn(
-          { sent: attachments.length, processed: MAX_ATTACHMENTS },
+          { sent: attachments.length, processed: MAX_ATTACHMENTS, skipped: skippedNames },
           'Attachment count capped',
         )
       }
