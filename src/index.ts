@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { handleEmailWebhook } from './handlers/email'
 import { formatByteEmailHtml } from './lib/email-template'
 import { logger } from './lib/logger'
+import { redis } from './services/redis'
 
 const app = new Hono()
 const PORT = process.env.PORT || 3000
@@ -20,8 +21,25 @@ app.get('/', (c) => {
   })
 })
 
-app.get('/health', (c) => {
-  return c.json({ status: 'healthy' })
+app.get('/health', async (c) => {
+  const components: Record<string, 'ok' | 'fail'> = {
+    redis: 'fail',
+  }
+
+  try {
+    await redis.ping()
+    components.redis = 'ok'
+  } catch {
+    // Redis down — service still works via in-memory fallback
+  }
+
+  const allHealthy = Object.values(components).every((v) => v === 'ok')
+
+  return c.json({
+    status: allHealthy ? 'healthy' : 'degraded',
+    components,
+    timestamp: new Date().toISOString(),
+  })
 })
 
 // Debug endpoint - development only
@@ -88,8 +106,12 @@ Chris`
 // Email webhook endpoint
 app.post('/api/email/webhook', handleEmailWebhook)
 
-// Test webhook endpoint - logs what's received without verification
+// Test webhook endpoint - development only
 app.post('/api/email/test-webhook', async (c) => {
+  if (process.env.NODE_ENV === 'production') {
+    return c.json({ error: 'Not available in production' }, 403)
+  }
+
   const payload = await c.req.text()
   logger.debug(
     {
