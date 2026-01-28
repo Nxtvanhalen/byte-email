@@ -146,7 +146,7 @@ logger.info(
     runtime: `Bun ${Bun.version}`,
     port: server.port,
     endpoint: '/api/email/webhook',
-    email: 'byte@chrisleebergstrom.com',
+    email: 'byte@firstlyte.co',
   },
   'Byte Email Service started',
 )

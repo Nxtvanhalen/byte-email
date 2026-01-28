@@ -6,7 +6,7 @@ const log = logger.child({ service: 'resend' })
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const BYTE_EMAIL = 'byte@chrisleebergstrom.com'
+const BYTE_EMAIL = 'byte@firstlyte.co'
 const BYTE_NAME = 'Byte AI'
 
 // Retry configuration for Resend

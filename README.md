@@ -4,7 +4,7 @@ Email interface for Byte AI assistant. Send an email to Byte and get an intellig
 
 **Status:** PRODUCTION READY & DEPLOYED
 **Live:** https://byte-email.onrender.com
-**Email:** byte@chrisleebergstrom.com
+**Email:** byte@firstlyte.co
 **Repository:** https://github.com/Nxtvanhalen/byte-email
 
 ---
@@ -12,7 +12,7 @@ Email interface for Byte AI assistant. Send an email to Byte and get an intellig
 ## How It Works
 
 ```
-You send email -> byte@chrisleebergstrom.com
+You send email -> byte@firstlyte.co
                         |
               Resend receives it (MX records)
                         |
@@ -92,7 +92,7 @@ You send email -> byte@chrisleebergstrom.com
 Include **"THINK"** (all caps) anywhere in your email to activate deep reasoning:
 
 ```
-To: byte@chrisleebergstrom.com
+To: byte@firstlyte.co
 Subject: Debug help
 
 THINK - why isn't this function returning the right value?
@@ -175,7 +175,7 @@ All retries use exponential backoff with 0-30% jitter to prevent thundering herd
 ```
 Sender (any email, any device)
        |
-byte@chrisleebergstrom.com
+byte@firstlyte.co
        |
 Resend Inbound (MX records, stores email)
        | webhook POST
