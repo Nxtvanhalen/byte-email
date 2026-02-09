@@ -52,7 +52,7 @@ export function LightningEffect({ count = 4 }: LightningEffectProps) {
             fontSize: bolt.size,
           }}
           animate={{
-            opacity: [0, 0.15, 0.08, 0.2, 0],
+            opacity: [0, 0.4, 0.2, 0.5, 0],
             y: [0, -20, -10, -30, -40],
             scale: [0.8, 1, 0.9, 1.1, 0.7],
           }}
