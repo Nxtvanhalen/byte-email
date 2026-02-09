@@ -24,9 +24,15 @@ You send email -> byte@firstlyte.co
                         |
               Fetch email content (3 retries)
                         |
-              Process attachments (2 retries each)
+              Filter inline signature images (logos, tracking pixels)
                         |
-              Claude Haiku 4.5 generates response (3 retries, 30s timeout)
+              Process real attachments (max 5, 2 retries each)
+                        |
+              Route to LLM provider:
+                ├── Text-only → DeepSeek Chat (~10x cheaper)
+                ├── Text + THINK → DeepSeek Reasoner (unlimited thinking)
+                ├── Has images/PDFs → Claude Haiku 4.5 (vision)
+                └── DeepSeek down → Claude fallback (automatic)
                         |
               Byte replies to your email (2 retries)
 ```
@@ -37,7 +43,7 @@ You send email -> byte@firstlyte.co
 
 - **Runtime:** Bun (Anthropic-acquired, native TypeScript)
 - **Server:** Hono (zero-dependency, Bun-native)
-- **AI Model:** Claude Haiku 4.5 (`claude-haiku-4-5-20251001`)
+- **AI Models:** DeepSeek V3.2 (text-only, primary) + Claude Haiku 4.5 (vision/attachments, fallback)
 - **Email:** Resend (inbound webhooks + outbound sending)
 - **Database:** Upstash Redis (conversations, rate limits, idempotency)
 - **Logging:** Pino (structured JSON in production, pretty-printed in dev)
@@ -66,12 +72,23 @@ You send email -> byte@firstlyte.co
 - Prevents duplicate replies when Resend retries webhooks
 - Fails open if Redis is down (processes anyway, risk of duplicate > dropping email)
 
+### Hybrid LLM Routing
+- **Per-email dynamic routing** — each email independently routed based on content
+- Text-only emails → DeepSeek Chat (~10x cheaper than Claude)
+- THINK mode (text-only) → DeepSeek Reasoner (unlimited chain-of-thought)
+- Emails with real image/PDF attachments → Claude Haiku 4.5 (vision required)
+- **Inline signature image filtering** — logos and tracking pixels stripped before routing
+- **Automatic fallback** — if DeepSeek is unavailable, Claude handles everything
+- Mid-thread switching: text→Claude→DeepSeek transitions are seamless
+- Provider and model logged per-request for cost tracking
+
 ### Input Guards
 - Email body capped at 50K characters (truncated with notice)
 - Max 5 attachments per email (excess listed by name, user invited to follow up)
+- Inline signature images filtered out before attachment processing
 - PDF size capped at 25MB (Claude's document limit)
 - Total input tokens capped at 150K with intelligent truncation
-- Claude API timeout: 30s normal, 45s thinking mode
+- LLM API timeout: 30s normal, 45-60s thinking mode
 
 ### Self-Aware Assistant
 - Byte knows how it works and can explain itself when asked
@@ -100,10 +117,11 @@ THINK - why isn't this function returning the right value?
 [your code here]
 ```
 
-| Mode         | Trigger         | Behavior                  |
-| ------------ | --------------- | ------------------------- |
-| **Normal**   | (default)       | Fast response, ~1-3 sec   |
-| **Thinking** | Include "THINK" | Deep reasoning, ~5-15 sec |
+| Mode         | Trigger         | Provider          | Behavior                           |
+| ------------ | --------------- | ----------------- | ---------------------------------- |
+| **Normal**   | (default)       | DeepSeek Chat     | Fast response, ~1-3 sec            |
+| **Thinking** | Include "THINK" | DeepSeek Reasoner | Deep reasoning, unlimited thinking  |
+| **Vision**   | Attach image/PDF| Claude Haiku 4.5  | Multimodal analysis, ~2-5 sec      |
 
 ---
 
@@ -136,6 +154,7 @@ If more than 5 attachments are sent, Byte processes the first 5 and replies with
 | ------------------- | ------- | ------------------ | ------- |
 | Fetch email content | 3       | 1s -> 2s -> 4s     | —       |
 | Fetch attachment    | 2       | 1s -> 2s           | —       |
+| DeepSeek API        | 2       | 1s -> 2s           | 30s (60s reasoner) |
 | Claude API          | 3       | 1s -> 2s -> 4s     | 30s (45s thinking) |
 | Send reply (Resend) | 2       | 1s -> 2s           | —       |
 
@@ -161,6 +180,7 @@ All retries use exponential backoff with 0-30% jitter to prevent thundering herd
 | Rate limit check fails | In-memory sliding window enforces same limits         |
 | Idempotency check fails| Process anyway (duplicate risk < dropped email risk)  |
 | Attachment fails       | Respond to text, note failure by filename in reply    |
+| DeepSeek API fails     | Automatic fallback to Claude (same request)           |
 | Claude API hangs       | 30s abort, auto-retry up to 3 attempts               |
 | Claude API fails       | Send styled error email after retries                 |
 | Send reply fails       | Send error notification email                         |
@@ -186,13 +206,17 @@ Render Service (byte-email, Bun + Hono)
        |-> Idempotency check (Redis SET NX)    <- fail open
        |-> Rate limit check (Redis + memory)   <- in-memory fallback
        |-> Fetch email content (Resend API)    <- 3 retries
-       |-> Input size guard (100K chars)
+       |-> Auto-reply detection (prevent loops)
+       |-> Input size guard (50K chars)
        |-> Detect THINK trigger
        |-> Send thinking ack (if THINK mode)
-       |-> Process attachments (max 5, 25MB)   <- 2 retries each
+       |-> Filter inline signature images      <- content_disposition + content_id
+       |-> Process real attachments (max 5)    <- 2 retries each
        |-> Load conversation history (Redis)   <- graceful fail
-       |-> Generate response (Claude)          <- 3 retries, 30s timeout
-       |-> Save to Redis                       <- graceful fail
+       |-> Route to LLM provider               <- per-email, based on attachments
+       |   ├── DeepSeek (text-only)            <- 2 retries, 30s/60s timeout
+       |   └── Claude (vision/fallback)        <- 3 retries, 30s/45s timeout
+       |-> Save to Redis (w/ provider metadata)<- graceful fail
        |-> Send reply (Resend)                 <- 2 retries
        v
 Reply arrives in sender's inbox
@@ -207,13 +231,16 @@ Reply arrives in sender's inbox
 src/
 ├── index.ts                    # Hono server, routes, Bun.serve()
 ├── handlers/
-│   └── email.ts               # Main webhook handler, idempotency, rate limiting
+│   └── email.ts               # Main webhook handler, routing, rate limiting
 ├── services/
-│   ├── claude.ts              # Claude API with retry + timeout, Byte personality
+│   ├── claude.ts              # Claude API (vision/attachments + fallback)
+│   ├── deepseek.ts            # DeepSeek API (text-only, primary for cost)
+│   ├── router.ts              # LLM routing engine (DeepSeek vs Claude)
 │   ├── redis.ts               # Upstash Redis client
 │   ├── resend.ts              # Email sending with retries
-│   └── attachments.ts         # Image/PDF/Excel processing with retries
+│   └── attachments.ts         # Image/PDF/Excel processing, inline filtering
 └── lib/
+    ├── prompts.ts             # Shared Byte personality + system prompt builder
     ├── logger.ts              # Pino structured logging config
     ├── email-template.ts      # Main HTML email template (dark mode)
     ├── error-templates.ts     # Styled error & acknowledgment emails
@@ -237,7 +264,8 @@ Copy `.env.example` to `.env` and fill in:
 ```bash
 RESEND_API_KEY=re_xxxxx          # From Resend dashboard
 RESEND_WEBHOOK_SECRET=whsec_xxx  # From Resend webhooks
-ANTHROPIC_API_KEY=sk-ant-xxx     # From Anthropic
+ANTHROPIC_API_KEY=sk-ant-xxx     # From Anthropic (vision + fallback)
+DEEPSEEK_API_KEY=sk-xxx          # From DeepSeek (text-only, optional — falls back to Claude)
 UPSTASH_REDIS_URL=https://xxx    # From Upstash
 UPSTASH_REDIS_TOKEN=xxx          # From Upstash
 ```
@@ -309,10 +337,11 @@ Pino structured logging throughout the codebase:
 | Attachments per email  | 5        | Processing cap             |
 | PDF size               | 25MB     | Claude's document limit    |
 | Input token budget     | 150K     | Context overflow prevention|
-| Claude timeout         | 30s/45s  | Hang protection            |
-| Claude max tokens      | 4,096    | Response length (normal)   |
-| Claude max tokens      | 16,000   | Response length (thinking) |
-| Thinking budget        | 10,000   | Reasoning token budget     |
+| DeepSeek timeout       | 30s/60s  | Hang protection (chat/reasoner) |
+| Claude timeout         | 30s/45s  | Hang protection (normal/thinking) |
+| Max output tokens      | 4,096    | Response length (normal)   |
+| Max output tokens      | 16,000   | Response length (thinking) |
+| Claude thinking budget | 10,000   | Reasoning token budget     |
 
 ### Token Budget Management
 
@@ -326,16 +355,18 @@ Users are notified what was truncated and invited to send content separately if 
 
 ### Service Tier Requirements
 
-| Users/Day | Resend          | Upstash Redis     | Render         | Claude API     |
-| --------- | --------------- | ----------------- | -------------- | -------------- |
-| < 30      | Free (100/day)  | Free (10K cmd/day)| Free           | ~$1/month      |
-| 100       | Free (borderline)| Free (borderline) | $7/month       | ~$5/month      |
-| 1,000     | Pro ($20/month) | Pay-as-you ($2)   | $7/month       | ~$150-360/month|
-| 10,000+   | Pro or SES      | Pro ($10/month)   | Auto-scale     | $1,500+/month  |
+| Users/Day | Resend          | Upstash Redis     | Render         | LLM API (hybrid) |
+| --------- | --------------- | ----------------- | -------------- | ---------------- |
+| < 30      | Free (100/day)  | Free (10K cmd/day)| Free           | ~$0.30/month     |
+| 100       | Free (borderline)| Free (borderline) | $7/month       | ~$1.50/month     |
+| 1,000     | Pro ($20/month) | Pay-as-you ($2)   | $7/month       | ~$45-100/month   |
+| 10,000+   | Pro or SES      | Pro ($10/month)   | Auto-scale     | ~$450-1,000/month|
+
+*LLM costs assume ~85% text-only (DeepSeek) / 15% vision (Claude) split after inline image filtering.*
 
 ### Future Scaling Considerations
 
-- **LLM Provider Flexibility:** Claude is called from a single file (`claude.ts`). Switching to OpenAI, Gemini, or Grok is a 1-file change for text. Full attachment parity (especially native PDF) varies by provider.
+- **LLM Provider Flexibility:** Hybrid routing already in place (DeepSeek + Claude). Adding a third provider (OpenAI, Gemini, Grok) requires one new service file + a routing rule in `router.ts`.
 - **Email Provider:** Resend handles both inbound and outbound. At 10K+ users/day, self-hosted SMTP inbound + Amazon SES outbound ($0.10/1000) would reduce costs significantly.
 - **Render Auto-scaling:** Available on Pro plan ($25/month per instance). Not needed until sustained high concurrency.
 - **Uptime Monitoring:** Recommended: UptimeRobot (free) pinging `/health` every 5 minutes with email alerts.
