@@ -262,6 +262,21 @@ export function formatAttachmentsForPrompt(attachments: ProcessedAttachment[]): 
 // FILTER INLINE SIGNATURE IMAGES (logos, tracking pixels, etc.)
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Filename patterns that strongly indicate auto-generated signature/logo images
+// These are NOT real user photos — Outlook, Gmail, and corporate email clients generate these
+const SIGNATURE_IMAGE_PATTERNS = [
+  /^image\d{3}\./i, // image001.png, image002.jpg (Outlook signature images)
+  /^image\d+\./i, // image1.png, image12.jpg (variant)
+  /logo/i, // logo.png, company-logo.jpg
+  /signature/i, // signature.png, email-signature.jpg
+  /banner/i, // banner.jpg, email-banner.png
+  /^icon/i, // icon.png, icon-phone.png
+  /footer/i, // footer.png, footer-logo.jpg
+  /tracking/i, // tracking.gif, tracking-pixel.png
+  /spacer/i, // spacer.gif (email layout)
+  /^pixel\./i, // pixel.gif, pixel.png (tracking)
+]
+
 export function filterInlineSignatureImages(attachments: AttachmentInfo[]): {
   realAttachments: AttachmentInfo[]
   filteredCount: number
@@ -275,11 +290,12 @@ export function filterInlineSignatureImages(attachments: AttachmentInfo[]): {
     )
     const isInline = att.content_disposition?.toLowerCase() === 'inline'
     const hasCid = !!att.content_id
+    const hasSignatureFilename = SIGNATURE_IMAGE_PATTERNS.some((p) => p.test(att.filename))
 
-    // Only filter images that are BOTH inline AND have a Content-ID (CID)
-    // This catches signature logos, tracking pixels, and embedded icons
-    // Real user-attached images have content_disposition="attachment" or no CID
-    if (isImage && isInline && hasCid) {
+    // Filter requires ALL THREE: inline + CID + signature-like filename
+    // This prevents filtering real user photos that are pasted/dragged into the email
+    // (those are inline + CID but have real filenames like IMG_1234.jpg or photo.png)
+    if (isImage && isInline && hasCid && hasSignatureFilename) {
       filteredCount++
       log.debug(
         { filename: att.filename, contentId: att.content_id },
