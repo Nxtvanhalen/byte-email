@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 const log = logger.child({ service: 'attachments' })
 
 const MAX_PDF_SIZE_BYTES = 25 * 1024 * 1024 // 25MB — Claude's document limit
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024 // 5MB — Claude's image limit
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -158,6 +159,20 @@ export async function processAttachments(
     try {
       switch (type) {
         case 'image':
+          // Guard against oversized images (Claude's limit is 5MB)
+          if (buffer.length > MAX_IMAGE_SIZE_BYTES) {
+            results.push({
+              filename: attachment.filename,
+              type: 'image',
+              error: `Image too large (${(buffer.length / 1024 / 1024).toFixed(1)}MB, max 5MB). Try resizing or compressing it.`,
+            })
+            log.warn(
+              { filename: attachment.filename, sizeBytes: buffer.length },
+              'Image exceeds size limit',
+            )
+            break
+          }
+
           results.push({
             filename: attachment.filename,
             type: 'image',
@@ -170,7 +185,7 @@ export async function processAttachments(
                   ? 'image/webp'
                   : 'image/jpeg',
           })
-          log.info({ filename: attachment.filename }, 'Image processed')
+          log.info({ filename: attachment.filename, sizeBytes: buffer.length }, 'Image processed')
           break
 
         case 'pdf':
