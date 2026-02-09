@@ -14,6 +14,8 @@ export interface AttachmentInfo {
   id: string
   filename: string
   content_type: string
+  content_disposition?: string // "inline" (signature logos) or "attachment" (real files)
+  content_id?: string // CID reference — present on inline embedded images
 }
 
 export interface ProcessedAttachment {
@@ -254,6 +256,46 @@ export function formatAttachmentsForPrompt(attachments: ProcessedAttachment[]): 
   }
 
   return parts.join('\n')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILTER INLINE SIGNATURE IMAGES (logos, tracking pixels, etc.)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function filterInlineSignatureImages(attachments: AttachmentInfo[]): {
+  realAttachments: AttachmentInfo[]
+  filteredCount: number
+} {
+  const real: AttachmentInfo[] = []
+  let filteredCount = 0
+
+  for (const att of attachments) {
+    const isImage = IMAGE_TYPES.some((t) =>
+      att.content_type.toLowerCase().includes(t.split('/')[1]),
+    )
+    const isInline = att.content_disposition?.toLowerCase() === 'inline'
+    const hasCid = !!att.content_id
+
+    // Only filter images that are BOTH inline AND have a Content-ID (CID)
+    // This catches signature logos, tracking pixels, and embedded icons
+    // Real user-attached images have content_disposition="attachment" or no CID
+    if (isImage && isInline && hasCid) {
+      filteredCount++
+      log.debug(
+        { filename: att.filename, contentId: att.content_id },
+        'Filtered inline signature image',
+      )
+      continue
+    }
+
+    real.push(att)
+  }
+
+  if (filteredCount > 0) {
+    log.info({ filteredCount, remaining: real.length }, 'Inline signature images filtered')
+  }
+
+  return { realAttachments: real, filteredCount }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

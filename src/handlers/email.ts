@@ -2,6 +2,9 @@ import type { Context } from 'hono'
 import { Webhook } from 'svix'
 import { redis } from '../services/redis'
 import { generateByteResponse, detectThinkingTrigger } from '../services/claude'
+import { generateDeepSeekResponse } from '../services/deepseek'
+import { routeEmail } from '../services/router'
+import { buildSystemPrompt } from '../lib/prompts'
 import { sendByteReply, sendErrorEmail, sendThinkingAck } from '../services/resend'
 import { formatByteEmailHtml } from '../lib/email-template'
 import {
@@ -12,6 +15,7 @@ import {
 } from '../lib/error-templates'
 import {
   processAttachments,
+  filterInlineSignatureImages,
   formatAttachmentsForPrompt,
   getImageAttachments,
   getPdfAttachments,
@@ -41,7 +45,13 @@ interface EmailReceivedEvent {
     from: string
     to: string | string[]
     subject: string
-    attachments?: Array<{ id: string; filename: string; content_type: string }>
+    attachments?: Array<{
+      id: string
+      filename: string
+      content_type: string
+      content_disposition?: string
+      content_id?: string
+    }>
   }
 }
 
@@ -277,6 +287,26 @@ export async function handleEmailWebhook(c: Context) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // FILTER INLINE SIGNATURE IMAGES (logos, tracking pixels)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let filteredAttachments = attachments || []
+    let inlineImagesFiltered = 0
+
+    if (filteredAttachments.length > 0) {
+      const filterResult = filterInlineSignatureImages(filteredAttachments)
+      filteredAttachments = filterResult.realAttachments
+      inlineImagesFiltered = filterResult.filteredCount
+
+      if (inlineImagesFiltered > 0) {
+        emailLog.info(
+          { filtered: inlineImagesFiltered, remaining: filteredAttachments.length },
+          'Inline signature images filtered',
+        )
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // HANDLE ATTACHMENTS (with graceful degradation)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -285,26 +315,26 @@ export async function handleEmailWebhook(c: Context) {
     let processedPdfs: Awaited<ReturnType<typeof processAttachments>> = []
     let attachmentWarning = ''
 
-    // Cap attachment count to prevent abuse
+    // Cap attachment count to prevent abuse (after inline filtering)
     const cappedAttachments =
-      attachments && attachments.length > MAX_ATTACHMENTS
-        ? attachments.slice(0, MAX_ATTACHMENTS)
-        : attachments
+      filteredAttachments.length > MAX_ATTACHMENTS
+        ? filteredAttachments.slice(0, MAX_ATTACHMENTS)
+        : filteredAttachments
 
     if (cappedAttachments && cappedAttachments.length > 0) {
-      if (attachments && attachments.length > MAX_ATTACHMENTS) {
+      if (filteredAttachments.length > MAX_ATTACHMENTS) {
         const processedNames = cappedAttachments.map((a) => a.filename).join(', ')
-        const skippedNames = attachments
+        const skippedNames = filteredAttachments
           .slice(MAX_ATTACHMENTS)
           .map((a) => a.filename)
           .join(', ')
         attachmentWarning =
-          `\n\n[Heads up: You sent ${attachments.length} attachments but I can handle ${MAX_ATTACHMENTS} at a time. ` +
+          `\n\n[Heads up: You sent ${filteredAttachments.length} attachments but I can handle ${MAX_ATTACHMENTS} at a time. ` +
           `I analyzed: ${processedNames}. ` +
           `Skipped: ${skippedNames}. ` +
           `Feel free to send the rest in a follow-up and I'll take a look.]`
         emailLog.warn(
-          { sent: attachments.length, processed: MAX_ATTACHMENTS, skipped: skippedNames },
+          { sent: filteredAttachments.length, processed: MAX_ATTACHMENTS, skipped: skippedNames },
           'Attachment count capped',
         )
       }
@@ -410,32 +440,88 @@ export async function handleEmailWebhook(c: Context) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GENERATE BYTE'S RESPONSE
+    // ROUTE TO LLM PROVIDER (DeepSeek for text-only, Claude for vision)
     // ─────────────────────────────────────────────────────────────────────────
 
+    const routing = routeEmail({
+      images: processedImages,
+      pdfs: processedPdfs,
+      useThinking,
+    })
+
+    // Build shared system prompt (same personality for both providers)
+    const systemPrompt = buildSystemPrompt({
+      from,
+      subject,
+      messageCount: history.length,
+      attachmentContext: attachmentContext || undefined,
+      useThinking,
+    })
+
     emailLog.info(
-      { thinking: useThinking, estimatedTokens: tokenBudget.totalTokens },
+      {
+        provider: routing.provider,
+        model: routing.model,
+        reason: routing.reason,
+        thinking: useThinking,
+        estimatedTokens: tokenBudget.totalTokens,
+        inlineImagesFiltered,
+      },
       'Generating response',
     )
 
     let byteResponse: string
+    let actualProvider = routing.provider
 
     try {
-      byteResponse = await generateByteResponse({
-        messages: history,
-        from,
-        subject,
-        attachmentContext: attachmentContext || undefined,
-        images: processedImages.length > 0 ? processedImages : undefined,
-        pdfs: processedPdfs.length > 0 ? processedPdfs : undefined,
-        useThinking,
-      })
+      if (routing.provider === 'deepseek') {
+        try {
+          byteResponse = await generateDeepSeekResponse(
+            {
+              messages: history,
+              from,
+              subject,
+              attachmentContext: attachmentContext || undefined,
+              useThinking,
+              model: routing.model,
+            },
+            systemPrompt,
+          )
+          emailLog.info({ provider: 'deepseek', model: routing.model }, 'Response from DeepSeek')
+        } catch (deepseekError) {
+          // FALLBACK: DeepSeek failed → try Claude (costs more but always works)
+          emailLog.warn({ err: deepseekError }, 'DeepSeek failed, falling back to Claude')
+          actualProvider = 'claude'
+          byteResponse = await generateByteResponse({
+            messages: history,
+            from,
+            subject,
+            attachmentContext: attachmentContext || undefined,
+            images: processedImages.length > 0 ? processedImages : undefined,
+            pdfs: processedPdfs.length > 0 ? processedPdfs : undefined,
+            useThinking,
+          })
+          emailLog.info({ provider: 'claude', fallback: true }, 'Response from Claude (fallback)')
+        }
+      } else {
+        // Claude route (vision attachments present)
+        byteResponse = await generateByteResponse({
+          messages: history,
+          from,
+          subject,
+          attachmentContext: attachmentContext || undefined,
+          images: processedImages.length > 0 ? processedImages : undefined,
+          pdfs: processedPdfs.length > 0 ? processedPdfs : undefined,
+          useThinking,
+        })
+        emailLog.info({ provider: 'claude' }, 'Response from Claude')
+      }
 
       if (attachmentWarning) {
         byteResponse = byteResponse.replace(/— Byte.*$/s, attachmentWarning + '\n\n— Byte')
       }
-    } catch (claudeError) {
-      emailLog.error({ err: claudeError }, 'Claude API failed')
+    } catch (llmError) {
+      emailLog.error({ err: llmError, provider: actualProvider }, 'All LLM providers failed')
 
       await sendErrorEmail({
         to: from,
@@ -460,6 +546,7 @@ export async function handleEmailWebhook(c: Context) {
           content: byteResponse,
           channel: 'email',
           timestamp: Date.now(),
+          metadata: { provider: actualProvider, model: routing.model },
         })
 
         await redis.set(conversationKey, history.slice(-50), { ex: 60 * 60 * 24 * 30 })
@@ -505,13 +592,18 @@ export async function handleEmailWebhook(c: Context) {
     }
 
     const durationMs = Date.now() - startTime
-    emailLog.info({ durationMs, replied: true }, 'Email processed successfully')
+    emailLog.info(
+      { durationMs, replied: true, provider: actualProvider, model: routing.model },
+      'Email processed successfully',
+    )
 
     return c.json({
       received: true,
       processed: true,
       replied: true,
       duration_ms: durationMs,
+      provider: actualProvider,
+      model: routing.model,
     })
   } catch (error) {
     log.error({ err: error }, 'Unexpected error in webhook handler')

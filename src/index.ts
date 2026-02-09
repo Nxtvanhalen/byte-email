@@ -53,6 +53,7 @@ app.get('/debug', (c) => {
       RESEND_API_KEY: process.env.RESEND_API_KEY ? '✓ set' : '✗ missing',
       RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET ? '✓ set' : '✗ missing',
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? '✓ set' : '✗ missing',
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ? '✓ set' : '✗ missing',
       UPSTASH_REDIS_URL: process.env.UPSTASH_REDIS_URL ? '✓ set' : '✗ missing',
       UPSTASH_REDIS_TOKEN: process.env.UPSTASH_REDIS_TOKEN ? '✓ set' : '✗ missing',
     },
