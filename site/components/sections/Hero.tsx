@@ -9,14 +9,15 @@ import { SITE } from '@/lib/constants'
 export function Hero() {
   const [copied, setCopied] = useState(false)
 
-  const handleCopy = async () => {
+  const handleClick = async () => {
     try {
       await navigator.clipboard.writeText(SITE.email)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      window.location.href = `mailto:${SITE.email}`
+      // clipboard failed silently
     }
+    window.location.href = `mailto:${SITE.email}`
   }
 
   return (
@@ -65,7 +66,7 @@ export function Hero() {
         <FadeIn delay={0.55}>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <motion.button
-              onClick={handleCopy}
+              onClick={handleClick}
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               className="group relative px-8 py-4 bg-accent text-white rounded-xl font-semibold text-lg
@@ -90,13 +91,7 @@ export function Hero() {
 
         <FadeIn delay={0.7}>
           <p className="text-xs text-text-muted mt-6">
-            Click to copy email address — or just{' '}
-            <a
-              href={`mailto:${SITE.email}`}
-              className="text-accent/70 hover:text-accent underline underline-offset-2"
-            >
-              open your email client
-            </a>
+            Opens your email client and copies the address to clipboard
           </p>
         </FadeIn>
       </div>
