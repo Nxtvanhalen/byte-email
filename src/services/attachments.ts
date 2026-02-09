@@ -292,12 +292,27 @@ export function filterInlineSignatureImages(attachments: AttachmentInfo[]): {
     const hasCid = !!att.content_id
     const hasSignatureFilename = SIGNATURE_IMAGE_PATTERNS.some((p) => p.test(att.filename))
 
+    // Log every attachment's disposition for debugging routing decisions
+    if (isImage) {
+      log.info(
+        {
+          filename: att.filename,
+          disposition: att.content_disposition,
+          contentId: att.content_id,
+          isInline,
+          hasCid,
+          hasSignatureFilename,
+        },
+        'Image attachment analysis',
+      )
+    }
+
     // Filter requires ALL THREE: inline + CID + signature-like filename
     // This prevents filtering real user photos that are pasted/dragged into the email
     // (those are inline + CID but have real filenames like IMG_1234.jpg or photo.png)
     if (isImage && isInline && hasCid && hasSignatureFilename) {
       filteredCount++
-      log.debug(
+      log.info(
         { filename: att.filename, contentId: att.content_id },
         'Filtered inline signature image',
       )
