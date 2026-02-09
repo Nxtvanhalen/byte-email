@@ -64,7 +64,7 @@ export function Hero() {
         </FadeIn>
 
         <FadeIn delay={0.55}>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="flex flex-col items-center justify-center gap-4">
             <motion.button
               onClick={handleClick}
               whileHover={{ scale: 1.03 }}
