@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: byte-landing
+    runtime: static
+    buildCommand: bun install && bun run build
+    staticPublishPath: ./out
+    envVars:
+      - key: NODE_ENV
+        value: production
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: interest-cohort=()
+      - path: /*
+        name: X-XSS-Protection
+        value: 1; mode=block
