@@ -33,9 +33,23 @@ export default function Contact() {
 
         <div className="space-y-8">
           <div className="rounded-xl border border-bg-header bg-bg-content p-6 md:p-8">
-            <h2 className="text-xl font-semibold text-white mb-3">Email Byte Directly</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">Get in Touch</h2>
             <p className="text-text-secondary mb-4">
-              The fastest way to reach us is the same way you use Byte — just send an email.
+              Questions, feedback, suggestions — send it all our way. We read every email.
+            </p>
+            <a
+              href={`mailto:${SITE.contactEmail}?subject=Byte%20—%20Contact`}
+              className="inline-flex items-center gap-2 text-accent hover:text-white transition-colors font-medium"
+            >
+              <span aria-hidden="true">⚡</span>
+              {SITE.contactEmail}
+            </a>
+          </div>
+
+          <div className="rounded-xl border border-bg-header bg-bg-content p-6 md:p-8">
+            <h2 className="text-xl font-semibold text-white mb-3">Try Byte</h2>
+            <p className="text-text-secondary mb-4">
+              Want to use Byte? Just send an email — no sign-up needed.
             </p>
             <a
               href={`mailto:${SITE.email}`}
@@ -44,19 +58,6 @@ export default function Contact() {
               <span aria-hidden="true">⚡</span>
               {SITE.email}
             </a>
-          </div>
-
-          <div className="rounded-xl border border-bg-header bg-bg-content p-6 md:p-8">
-            <h2 className="text-xl font-semibold text-white mb-3">Feedback &amp; Suggestions</h2>
-            <p className="text-text-secondary mb-4">
-              Byte is a community project. Your input directly shapes what we build next.
-            </p>
-            <Link
-              href="/#feedback"
-              className="text-accent hover:text-white transition-colors font-medium"
-            >
-              Go to feedback form &rarr;
-            </Link>
           </div>
 
           <div className="rounded-xl border border-bg-header bg-bg-content p-6 md:p-8">

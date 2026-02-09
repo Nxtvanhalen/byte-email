@@ -132,8 +132,9 @@ export default function Privacy() {
               </li>
             </ul>
             <p>
-              To make a request, email <a href={`mailto:${SITE.email}`}>{SITE.email}</a> with the
-              subject line &ldquo;Privacy Request.&rdquo;
+              To make a request, email{' '}
+              <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a> with the subject line
+              &ldquo;Privacy Request.&rdquo;
             </p>
           </section>
 
@@ -150,7 +151,7 @@ export default function Privacy() {
             <h2>Contact</h2>
             <p>
               Questions about this policy? Email us at{' '}
-              <a href={`mailto:${SITE.email}`}>{SITE.email}</a>.
+              <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>.
             </p>
           </section>
         </div>

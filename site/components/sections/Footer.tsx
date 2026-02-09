@@ -47,10 +47,10 @@ export function Footer() {
             </a>
           </p>
           <a
-            href={`mailto:${SITE.email}`}
+            href={`mailto:${SITE.contactEmail}`}
             className="text-xs text-text-muted hover:text-accent transition-colors"
           >
-            {SITE.email}
+            {SITE.contactEmail}
           </a>
         </div>
       </div>

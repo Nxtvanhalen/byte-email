@@ -8,6 +8,7 @@ export const SITE = {
   author: 'Chris Bergstrom',
   authorUrl: 'https://chrisleebergstrom.com',
   github: 'https://github.com/Nxtvanhalen/byte-email',
+  contactEmail: 'Chrisleebergstrom@gmail.com',
 } as const
 
 export const FEATURES = [

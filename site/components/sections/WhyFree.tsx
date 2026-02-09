@@ -63,7 +63,7 @@ export function WhyFree() {
           <p className="text-center text-text-secondary pt-4">
             This is built for the community, by the community. Your{' '}
             <a
-              href="#feedback"
+              href="mailto:Chrisleebergstrom@gmail.com?subject=Byte%20Feedback"
               className="text-accent hover:text-white transition-colors underline underline-offset-2"
             >
               feedback

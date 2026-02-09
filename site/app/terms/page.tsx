@@ -134,7 +134,7 @@ export default function Terms() {
             <h2>Contact</h2>
             <p>
               Questions about these terms? Email us at{' '}
-              <a href={`mailto:${SITE.email}`}>{SITE.email}</a>.
+              <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>.
             </p>
           </section>
         </div>

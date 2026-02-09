@@ -8,7 +8,7 @@ const navLinks = [
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'Features', href: '#features' },
   { label: 'About', href: '#why-free' },
-  { label: 'Feedback', href: '#feedback' },
+  { label: 'Contact', href: '/contact' },
 ]
 
 export function Nav() {
