@@ -4,10 +4,20 @@ import { logger } from '../lib/logger'
 
 const log = logger.child({ service: 'deepseek' })
 
-const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: 'https://api.deepseek.com',
-})
+// Lazy-initialize: OpenAI SDK throws at construction if no API key is set,
+// which would crash the server even when DeepSeek isn't needed (Claude fallback).
+let _client: OpenAI | null = null
+
+function getClient(): OpenAI {
+  if (!_client) {
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) {
+      throw new Error('DEEPSEEK_API_KEY is not set')
+    }
+    _client = new OpenAI({ apiKey, baseURL: 'https://api.deepseek.com' })
+  }
+  return _client
+}
 
 // Timeouts: reasoner needs more time (chain-of-thought can be lengthy)
 const DEEPSEEK_TIMEOUT_MS = 30_000
@@ -80,8 +90,8 @@ export async function generateDeepSeekResponse(
         ...(isReasoner ? {} : { temperature: 0.7 }),
       }
 
-      return deepseek.chat.completions
-        .create(params, { signal: controller.signal })
+      return getClient()
+        .chat.completions.create(params, { signal: controller.signal })
         .finally(() => clearTimeout(timer))
     }, DEEPSEEK_RETRY_OPTIONS)
 
