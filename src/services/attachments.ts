@@ -265,8 +265,7 @@ export function formatAttachmentsForPrompt(attachments: ProcessedAttachment[]): 
 // Filename patterns that strongly indicate auto-generated signature/logo images
 // These are NOT real user photos — Outlook, Gmail, and corporate email clients generate these
 const SIGNATURE_IMAGE_PATTERNS = [
-  /^image\d{3}\./i, // image001.png, image002.jpg (Outlook signature images)
-  /^image\d+\./i, // image1.png, image12.jpg (variant)
+  /^image\d{3}\./i, // image001.png, image002.jpg (Outlook signature images, always 3 digits)
   /logo/i, // logo.png, company-logo.jpg
   /signature/i, // signature.png, email-signature.jpg
   /banner/i, // banner.jpg, email-banner.png
