@@ -76,23 +76,22 @@ export function Hero() {
               <span className="relative z-10">{copied ? 'Copied!' : SITE.email}</span>
               <span className="absolute inset-0 rounded-xl bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </motion.button>
-
-            <a
-              href="#how-it-works"
-              className="text-text-secondary hover:text-accent transition-colors duration-200 text-sm font-medium flex items-center gap-1"
-            >
-              See how it works
-              <span aria-hidden="true" className="text-xs">
-                ↓
-              </span>
-            </a>
           </div>
+          <p className="text-xs text-text-muted mt-4">
+            Opens your email client and copies the address to clipboard
+          </p>
         </FadeIn>
 
         <FadeIn delay={0.7}>
-          <p className="text-xs text-text-muted mt-6">
-            Opens your email client and copies the address to clipboard
-          </p>
+          <a
+            href="#how-it-works"
+            className="text-text-secondary hover:text-accent transition-colors duration-200 text-sm font-medium inline-flex items-center gap-1 mt-6"
+          >
+            See how it works
+            <span aria-hidden="true" className="text-xs">
+              ↓
+            </span>
+          </a>
         </FadeIn>
       </div>
     </section>
