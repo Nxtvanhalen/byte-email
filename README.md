@@ -415,4 +415,4 @@ Users are notified what was truncated and invited to send content separately if 
 
 ## License
 
-MIT
+AGPL-3.0 — See [LICENSE](LICENSE) for details.
