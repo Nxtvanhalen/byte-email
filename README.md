@@ -9,6 +9,25 @@ Email interface for Byte AI assistant. Send an email to Byte and get an intellig
 
 ---
 
+## Production Metrics
+
+| Category | Metric | Score |
+|----------|--------|-------|
+| **Lighthouse** | Performance | 100 |
+| | Accessibility | 92 |
+| | Best Practices | 100 |
+| | SEO | 100 |
+| **SSL/TLS** | SSL Labs Grade | A |
+| **Security Headers** | X-Content-Type-Options | 1/6 |
+| **Protocol** | HTTP/2 + HTTP/3 | Active |
+| **Response** | Time to First Byte | 63ms |
+| **Compression** | Brotli | Active |
+| **HTTPS** | Enforcement | 301 redirect |
+
+Lighthouse scores verified in incognito. Security headers are a known improvement area — HSTS, CSP, X-Frame-Options, Referrer-Policy, and Permissions-Policy to be added via Cloudflare.
+
+---
+
 ## How It Works
 
 ```
